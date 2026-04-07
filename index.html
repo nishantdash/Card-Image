@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hyperface — AI Card Personalization Platform</title>
+<style>
+  /* ---------- Base ---------- */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f6f7fb;
+    --panel: #ffffff;
+    --panel-2: #fbfbfd;
+    --border: #e6e8ef;
+    --border-strong: #d5d8e2;
+    --text: #16181d;
+    --text-muted: #6b7280;
+    --text-soft: #9099a8;
+    --primary: #5b5bf6;
+    --primary-dark: #4646e0;
+    --primary-soft: #eef0ff;
+    --green: #10b981;
+    --green-soft: #e7f7f0;
+    --yellow: #f59e0b;
+    --yellow-soft: #fef4e1;
+    --red: #ef4444;
+    --red-soft: #fde9ea;
+    --blue: #3b82f6;
+    --blue-soft: #e8f0fe;
+    --purple: #8b5cf6;
+    --purple-soft: #f1ecff;
+    --shadow-sm: 0 1px 2px rgba(15,17,22,0.04), 0 1px 3px rgba(15,17,22,0.04);
+    --shadow-md: 0 4px 14px rgba(15,17,22,0.06), 0 1px 2px rgba(15,17,22,0.04);
+    --shadow-lg: 0 12px 32px rgba(15,17,22,0.10);
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select, textarea { font-family: inherit; font-size: 14px; color: inherit; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ---------- App Shell ---------- */
+  .app {
+    display: grid;
+    grid-template-columns: 248px 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Sidebar */
+  .sidebar {
+    background: #0f1117;
+    color: #d6d9e0;
+    padding: 22px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-right: 1px solid #1c1f28;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 8px 22px 8px;
+  }
+  .brand-logo {
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 700; font-size: 15px;
+    box-shadow: 0 4px 12px rgba(99,102,241,0.4);
+  }
+  .brand-text { display: flex; flex-direction: column; line-height: 1.2; }
+  .brand-text strong { color: white; font-size: 14px; }
+  .brand-text span { color: #7e8493; font-size: 11px; }
+
+  .nav-section { color: #5e6473; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; padding: 14px 10px 6px; }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    color: #c7cbd6;
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .nav-item:hover { background: #1a1d26; color: #fff; }
+  .nav-item.active { background: linear-gradient(180deg, #1f2230 0%, #1a1d28 100%); color: #fff; box-shadow: inset 0 0 0 1px #2a2e3c; }
+  .nav-item.active .nav-icon { color: #8b8eff; }
+  .nav-icon {
+    width: 18px; height: 18px;
+    display: flex; align-items: center; justify-content: center;
+    color: #8990a3;
+  }
+  .sidebar-footer {
+    margin-top: auto;
+    border-top: 1px solid #1c1f28;
+    padding-top: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #f59e0b, #ef4444);
+    display: flex; align-items: center; justify-content: center;
+    color: white; font-weight: 600; font-size: 12px;
+  }
+  .sidebar-footer .info { line-height: 1.3; }
+  .sidebar-footer .info strong { display: block; color: #fff; font-size: 12.5px; }
+  .sidebar-footer .info span { color: #6b7184; font-size: 11px; }
+
+  /* Header */
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100vh; }
+  .header {
+    height: 62px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 28px;
+    gap: 24px;
+  }
+  .header h1 { font-size: 16px; font-weight: 600; }
+  .header .crumbs { color: var(--text-muted); font-size: 12.5px; }
+  .header .crumbs strong { color: var(--text); font-weight: 600; }
+  .header-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+  .search-box {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    width: 260px;
+    display: flex; align-items: center; gap: 8px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .search-box input { background: transparent; border: none; outline: none; flex: 1; }
+  .pill {
+    background: var(--green-soft);
+    color: var(--green);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11.5px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  /* Content */
+  .content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px;
+  }
+  .page { display: none; animation: fade 0.25s ease; }
+  .page.active { display: block; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .page-subtitle {
+    color: var(--text-muted);
+    margin-bottom: 26px;
+    font-size: 13.5px;
+  }
+
+  /* Cards / Panels */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+  }
+  .panel-header {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-header h3 { font-size: 14px; font-weight: 600; }
+  .panel-header .sub { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+  .panel-body { padding: 22px; }
+
+  /* Buttons */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    transition: all 0.15s ease;
+    border: 1px solid transparent;
+  }
+  .btn-primary {
+    background: var(--primary);
+    color: white;
+    box-shadow: 0 1px 2px rgba(91,91,246,0.3), inset 0 1px 0 rgba(255,255,255,0.2);
+  }
+  .btn-primary:hover { background: var(--primary-dark); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-ghost { background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { background: var(--bg); border-color: var(--border-strong); }
+  .btn-success { background: var(--green); color: white; }
+  .btn-success:hover { background: #0d9266; }
+  .btn-danger { background: var(--red); color: white; }
+  .btn-danger:hover { background: #d63838; }
+  .btn-warning { background: var(--yellow); color: white; }
+
+  /* ---------- Page 1: Customer Flow ---------- */
+  .stepper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 28px;
+    padding: 18px 22px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-muted);
+    font-size: 12.5px;
+    font-weight: 500;
+  }
+  .step .num {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 1px solid var(--border-strong);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11.5px; font-weight: 600;
+  }
+  .step.active { color: var(--text); }
+  .step.active .num { background: var(--primary); color: white; border-color: var(--primary); }
+  .step.done .num { background: var(--green); color: white; border-color: var(--green); }
+  .step-line { flex: 1; height: 1px; background: var(--border); }
+
+  .flow-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 20px;
+  }
+  .upload-zone {
+    border: 2px dashed var(--border-strong);
+    border-radius: var(--radius);
+    padding: 38px 20px;
+    text-align: center;
+    cursor: pointer;
+    background: var(--panel-2);
+    transition: all 0.15s ease;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+  }
+  .upload-zone .icon {
+    width: 48px; height: 48px;
+    margin: 0 auto 12px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+  }
+  .upload-zone h4 { font-size: 14px; margin-bottom: 4px; }
+  .upload-zone p { font-size: 12.5px; color: var(--text-muted); }
+  .upload-preview {
+    margin-top: 14px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    aspect-ratio: 16/10;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .upload-preview img { width: 100%; height: 100%; object-fit: cover; }
+  .upload-preview .placeholder { color: var(--text-soft); font-size: 12px; }
+
+  .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .form-row label { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-row input, .form-row select, .form-row textarea {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: var(--panel);
+    outline: none;
+    transition: all 0.15s ease;
+  }
+  .form-row input:focus, .form-row select:focus, .form-row textarea:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-soft);
+  }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  .generated-cards {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    margin-top: 8px;
+  }
+  .gen-card {
+    border-radius: 14px;
+    aspect-ratio: 16/10;
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+    border: 2px solid transparent;
+    box-shadow: var(--shadow-md);
+    transition: all 0.2s ease;
+  }
+  .gen-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-lg); }
+  .gen-card.selected { border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-soft), var(--shadow-lg); }
+  .gen-card canvas { width: 100%; height: 100%; display: block; }
+  .gen-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gen-card .gen-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; justify-content: space-between;
+    padding: 14px 16px;
+    color: white;
+    background: linear-gradient(180deg, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0) 35%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.7) 100%);
+    text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    pointer-events: none;
+  }
+  .gen-card .gen-brand { font-size: 11px; font-weight: 800; letter-spacing: 1.6px; }
+  .gen-card .gen-bottom { display: flex; justify-content: space-between; align-items: flex-end; }
+  .gen-card .gen-name { font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
+  .gen-card .gen-num { font-size: 13px; font-weight: 800; letter-spacing: 1.8px; }
+  .gen-card .gen-skeleton {
+    position: absolute; inset: 0;
+    background: linear-gradient(90deg, #1f2937 0%, #374151 50%, #1f2937 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  .gen-card .check {
+    position: absolute; top: 10px; right: 10px;
+    width: 26px; height: 26px;
+    background: var(--primary);
+    border-radius: 50%;
+    color: white;
+    display: none;
+    align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+    z-index: 2;
+  }
+  .gen-card.selected .check { display: flex; }
+  .ai-error { color: var(--red); font-size: 12px; margin-top: 8px; display: none; }
+  .ai-error.active { display: block; }
+
+  .loading-bar { display: none; margin: 12px 0; }
+  .loading-bar.active { display: block; }
+  .loading-bar .track {
+    height: 6px;
+    background: var(--bg);
+    border-radius: 999px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .loading-bar .fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary), var(--purple));
+    width: 0;
+    transition: width 0.3s ease;
+  }
+  .loading-bar .label { font-size: 12px; color: var(--text-muted); }
+
+  /* ---------- Page 2: AI Pipeline ---------- */
+  .pipeline-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 20px;
+  }
+  .pipeline-list { display: flex; flex-direction: column; gap: 12px; }
+  .layer-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    position: relative;
+    box-shadow: var(--shadow-sm);
+  }
+  .layer-card:hover { border-color: var(--border-strong); transform: translateX(2px); }
+  .layer-card.active { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+  .layer-card.processing { background: linear-gradient(90deg, var(--primary-soft), var(--panel)); border-color: var(--primary); }
+  .layer-card.processing::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--primary);
+    border-radius: 12px 0 0 12px;
+    animation: pulse 1s infinite;
+  }
+  .layer-card.done::before {
+    content: ''; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--green);
+    border-radius: 12px 0 0 12px;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .layer-row { display: flex; align-items: center; gap: 14px; }
+  .layer-icon {
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .layer-info { flex: 1; min-width: 0;}
+  .layer-info h4 { font-size: 13.5px; font-weight: 600; margin-bottom: 2px; }
+  .layer-info p { font-size: 12px; color: var(--text-muted); }
+  .layer-status {
+    font-size: 11px; font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--text-muted);
+  }
+  .layer-card.processing .layer-status { background: var(--primary-soft); color: var(--primary); }
+  .layer-card.done .layer-status { background: var(--green-soft); color: var(--green); }
+
+  .layer-detail {
+    display: none;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--border);
+  }
+  .layer-card.expanded .layer-detail { display: block; }
+  .detail-row { display: grid; grid-template-columns: 90px 1fr; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+  .detail-row .key { color: var(--text-muted); font-weight: 600; }
+  .detail-row .val { color: var(--text); }
+  .detail-row .val code {
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 11.5px;
+    color: var(--purple);
+  }
+
+  .sim-panel {
+    position: sticky;
+    top: 0;
+    align-self: start;
+  }
+  .sim-output {
+    background: #0f1117;
+    border-radius: 10px;
+    padding: 16px;
+    margin-top: 14px;
+    color: #c8cdd9;
+    font-family: 'SF Mono', Monaco, monospace;
+    font-size: 12px;
+    min-height: 240px;
+    overflow-y: auto;
+    max-height: 360px;
+  }
+  .sim-line { padding: 3px 0; opacity: 0; animation: simIn 0.3s forwards; }
+  .sim-line.success { color: #6ee7b7; }
+  .sim-line.warn { color: #fbbf24; }
+  .sim-line.info { color: #93c5fd; }
+  .sim-line .arrow { color: #6b7280; }
+  @keyframes simIn { to { opacity: 1; } }
+
+  .score-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .score-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    background: var(--panel-2);
+  }
+  .score-card .lbl { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .score-card .val { font-size: 22px; font-weight: 700; margin-top: 4px; }
+  .score-card .meter { height: 4px; background: var(--bg); border-radius: 999px; margin-top: 8px; overflow: hidden; }
+  .score-card .meter > div { height: 100%; background: var(--primary); transition: width 0.6s ease; }
+  .score-card.green .val { color: var(--green); }
+  .score-card.green .meter > div { background: var(--green); }
+  .score-card.yellow .val { color: var(--yellow); }
+  .score-card.yellow .meter > div { background: var(--yellow); }
+  .score-card.red .val { color: var(--red); }
+  .score-card.red .meter > div { background: var(--red); }
+
+  .decision-banner {
+    margin-top: 14px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px; font-weight: 600;
+  }
+  .decision-banner.approve { background: var(--green-soft); color: var(--green); border: 1px solid #c5ecd9; }
+  .decision-banner.review { background: var(--yellow-soft); color: var(--yellow); border: 1px solid #fce6b8; }
+  .decision-banner.reject { background: var(--red-soft); color: var(--red); border: 1px solid #f8d2d2; }
+
+  /* ---------- Page 3: Ops Dashboard ---------- */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 22px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 18px;
+    box-shadow: var(--shadow-sm);
+  }
+  .stat .label { font-size: 12px; color: var(--text-muted); }
+  .stat .number { font-size: 26px; font-weight: 700; margin-top: 4px; }
+  .stat .delta { font-size: 11px; color: var(--green); margin-top: 4px; font-weight: 600; }
+  .stat .delta.down { color: var(--red); }
+
+  .ops-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 20px; }
+
+  .data-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  .data-table th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    padding: 12px 16px;
+    background: var(--panel-2);
+    border-bottom: 1px solid var(--border);
+    font-weight: 600;
+  }
+  .data-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    vertical-align: middle;
+  }
+  .data-table tr { cursor: pointer; transition: background 0.15s ease; }
+  .data-table tbody tr:hover { background: var(--panel-2); }
+  .data-table tr.selected { background: var(--primary-soft); }
+  .data-table tr:last-child td { border-bottom: none; }
+
+  .table-thumb {
+    width: 56px; height: 36px;
+    border-radius: 6px;
+    background: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+    border: 1px solid var(--border);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .badge.green { background: var(--green-soft); color: var(--green); }
+  .badge.yellow { background: var(--yellow-soft); color: var(--yellow); }
+  .badge.red { background: var(--red-soft); color: var(--red); }
+  .badge.blue { background: var(--blue-soft); color: var(--blue); }
+  .badge.gray { background: var(--bg); color: var(--text-muted); }
+  .flag-tag {
+    display: inline-block;
+    padding: 2px 7px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 10.5px;
+    margin-right: 4px;
+    color: var(--text-muted);
+  }
+
+  .detail-panel { display: flex; flex-direction: column; gap: 16px; }
+  .detail-img {
+    aspect-ratio: 16/10;
+    border-radius: 10px;
+    background: var(--bg);
+    overflow: hidden;
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 60px;
+  }
+  .kv { display: flex; flex-direction: column; gap: 8px; }
+  .kv .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 12.5px; }
+  .kv .row:last-child { border-bottom: none; }
+  .kv .row .k { color: var(--text-muted); }
+  .kv .row .v { font-weight: 600; }
+
+  .signal-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .signal {
+    text-align: center;
+    padding: 12px 8px;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+  .signal .ic { font-size: 18px; margin-bottom: 4px; }
+  .signal .ct { font-size: 16px; font-weight: 700; }
+  .signal .lb { font-size: 10.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+  .action-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 14px; }
+
+  .copilot {
+    background: linear-gradient(180deg, #fbf8ff 0%, #ffffff 100%);
+    border: 1px solid #ece5ff;
+    border-radius: var(--radius);
+    padding: 18px;
+    margin-top: 16px;
+  }
+  .copilot-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .copilot-header .ai-badge {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #8b5cf6, #6366f1);
+    color: white;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .copilot-header h4 { font-size: 13.5px; }
+  .copilot-header span { display: block; font-size: 11px; color: var(--text-muted); }
+  .copilot-output {
+    background: white;
+    border: 1px solid #ece5ff;
+    border-radius: 8px;
+    padding: 14px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    min-height: 90px;
+    color: var(--text);
+  }
+  .copilot-output em { color: var(--purple); font-style: normal; font-weight: 600; }
+  .typing-cursor {
+    display: inline-block;
+    width: 7px; height: 14px;
+    background: var(--purple);
+    margin-left: 1px;
+    vertical-align: middle;
+    animation: blink 0.9s infinite;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- Page 4: Architecture ---------- */
+  .arch-canvas {
+    background:
+      radial-gradient(circle at 1px 1px, #e5e8ef 1px, transparent 0);
+    background-size: 20px 20px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 36px 24px;
+  }
+  .arch-row {
+    display: grid;
+    gap: 16px;
+    margin-bottom: 30px;
+    position: relative;
+  }
+  .arch-row.cols-1 { grid-template-columns: 1fr; max-width: 320px; margin-left: auto; margin-right: auto; }
+  .arch-row.cols-2 { grid-template-columns: 1fr 1fr; max-width: 640px; margin-left: auto; margin-right: auto; }
+  .arch-row.cols-3 { grid-template-columns: repeat(3, 1fr); max-width: 880px; margin-left: auto; margin-right: auto; }
+  .arch-row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+
+  .arch-box {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    box-shadow: var(--shadow-sm);
+    text-align: center;
+    position: relative;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .arch-box:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); border-color: var(--primary); }
+  .arch-box .ic {
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    margin: 0 auto 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 17px;
+  }
+  .arch-box.customer .ic { background: var(--blue-soft); color: var(--blue); }
+  .arch-box.ai .ic { background: var(--purple-soft); color: var(--purple); }
+  .arch-box.mod .ic { background: var(--yellow-soft); color: var(--yellow); }
+  .arch-box.ops .ic { background: var(--green-soft); color: var(--green); }
+  .arch-box.bank .ic { background: var(--red-soft); color: var(--red); }
+  .arch-box.infra .ic { background: var(--bg); color: var(--text-muted); }
+  .arch-box h5 { font-size: 13px; margin-bottom: 2px; }
+  .arch-box p { font-size: 11px; color: var(--text-muted); }
+
+  .arrow-down {
+    text-align: center;
+    color: var(--text-soft);
+    font-size: 18px;
+    margin: -18px 0 14px;
+  }
+
+  .arch-section-label {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-soft);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 10px;
+    font-weight: 600;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d8dbe5; border-radius: 999px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: #c0c4d1; }
+
+  /* Responsive */
+  @media (max-width: 1100px) {
+    .app { grid-template-columns: 220px 1fr; }
+    .pipeline-grid, .ops-layout, .flow-grid { grid-template-columns: 1fr; }
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 720px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { display: none; }
+    .generated-cards { grid-template-columns: 1fr; }
+    .stats-row { grid-template-columns: 1fr 1fr; }
+    .form-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ SIDEBAR ============ -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-logo">H</div>
+      <div class="brand-text">
+        <strong>Hyperface</strong>
+        <span>AI Card Platform</span>
+      </div>
+    </div>
+
+    <div class="nav-section">Workspace</div>
+    <div class="nav-item active" data-page="customer">
+      <span class="nav-icon">◉</span> Customer Flow
+    </div>
+    <div class="nav-item" data-page="pipeline">
+      <span class="nav-icon">◈</span> AI Pipeline
+    </div>
+    <div class="nav-item" data-page="ops">
+      <span class="nav-icon">◫</span> Ops Dashboard
+    </div>
+    <div class="nav-item" data-page="arch">
+      <span class="nav-icon">◇</span> Architecture
+    </div>
+
+    <div class="nav-section">Resources</div>
+    <div class="nav-item"><span class="nav-icon">▤</span> API Docs</div>
+    <div class="nav-item"><span class="nav-icon">⚙</span> Settings</div>
+    <div class="nav-item"><span class="nav-icon">?</span> Support</div>
+
+    <div class="sidebar-footer">
+      <div class="avatar">NA</div>
+      <div class="info">
+        <strong>Nishant A.</strong>
+        <span>Admin · Hyperface</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ============ MAIN ============ -->
+  <main class="main">
+    <header class="header">
+      <div>
+        <h1 id="pageTitle">Customer Flow</h1>
+        <div class="crumbs" id="crumbs">Workspace · <strong>Customer Flow</strong></div>
+      </div>
+      <div class="header-right">
+        <div class="search-box">
+          <span>⌕</span>
+          <input placeholder="Search submissions, prompts…" />
+        </div>
+        <span class="pill"><span class="dot"></span> All systems operational</span>
+      </div>
+    </header>
+
+    <div class="content">
+
+      <!-- ===================================== -->
+      <!-- PAGE 1: CUSTOMER FLOW -->
+      <!-- ===================================== -->
+      <section class="page active" id="page-customer">
+        <h2 class="page-title">Create Your Personalized Card</h2>
+        <p class="page-subtitle">Upload an image, describe your style, and our AI will generate three custom card designs in seconds.</p>
+
+        <div class="stepper">
+          <div class="step active" id="s1"><div class="num">1</div> Upload Image</div>
+          <div class="step-line"></div>
+          <div class="step" id="s2"><div class="num">2</div> Describe Style</div>
+          <div class="step-line"></div>
+          <div class="step" id="s3"><div class="num">3</div> Generate</div>
+          <div class="step-line"></div>
+          <div class="step" id="s4"><div class="num">4</div> Select Design</div>
+        </div>
+
+        <div class="flow-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>1 · Upload Image</h3>
+                <div class="sub">PNG, JPG up to 10MB</div>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="upload-zone" id="uploadZone">
+                <div class="icon">↑</div>
+                <h4>Drag & drop your image here</h4>
+                <p>or click to browse files</p>
+                <input type="file" id="fileInput" accept="image/*" hidden />
+              </div>
+              <div class="upload-preview" id="uploadPreview">
+                <span class="placeholder">Image preview will appear here</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>2 · Customize Your Card</h3>
+                <div class="sub">Tell us how you want it to look</div>
+              </div>
+            </div>
+            <div class="panel-body">
+              <div class="form-row">
+                <label>Prompt</label>
+                <textarea id="prompt" rows="3" placeholder="e.g. A serene mountain landscape at sunset, photorealistic"></textarea>
+              </div>
+              <div class="form-grid">
+                <div class="form-row">
+                  <label>Style</label>
+                  <select id="style">
+                    <option>Minimalist</option>
+                    <option>Photorealistic</option>
+                    <option>Watercolor</option>
+                    <option>Abstract</option>
+                    <option>Cinematic</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label>Mood</label>
+                  <select id="mood">
+                    <option>Calm</option>
+                    <option>Energetic</option>
+                    <option>Luxurious</option>
+                    <option>Playful</option>
+                    <option>Mysterious</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label>Color Palette</label>
+                  <select id="color">
+                    <option>Midnight Blue</option>
+                    <option>Sunset Orange</option>
+                    <option>Forest Green</option>
+                    <option>Royal Purple</option>
+                    <option>Monochrome</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label>Background</label>
+                  <select id="background">
+                    <option>Gradient</option>
+                    <option>Solid</option>
+                    <option>Textured</option>
+                    <option>Pattern</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label>AI Provider</label>
+                  <select id="aiProvider">
+                    <option value="pollinations">Pollinations · Free, no key</option>
+                    <option value="gemini">Google Gemini</option>
+                    <option value="openai">OpenAI · DALL·E 3</option>
+                  </select>
+                </div>
+                <div class="form-row" id="aiKeyRow" style="display:none;">
+                  <label>API Key</label>
+                  <input id="aiKey" type="password" placeholder="Paste your key (stored locally)" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);" />
+                </div>
+              </div>
+              <div id="photoNotice" style="display:none;margin-top:8px;padding:10px 12px;border-radius:8px;font-size:12px;background:var(--primary-soft);color:var(--primary);border:1px solid var(--primary);"></div>
+              <button class="btn btn-primary" id="generateBtn" style="margin-top: 8px; width: 100%; justify-content: center;">
+                ✨ Generate Card Designs
+              </button>
+              <div class="loading-bar" id="loadingBar">
+                <div class="label" id="loadingLabel">Initializing AI engine…</div>
+                <div class="track"><div class="fill" id="loadingFill"></div></div>
+              </div>
+              <div class="ai-error" id="aiError"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" style="margin-top: 20px;" id="resultsPanel">
+          <div class="panel-header">
+            <div>
+              <h3>3 · Choose Your Favorite Design</h3>
+              <div class="sub">Select one of three AI-generated card variations</div>
+            </div>
+            <span class="badge gray" id="resultsBadge">Awaiting generation</span>
+          </div>
+          <div class="panel-body">
+            <div class="generated-cards" id="generatedCards">
+              <!-- generated dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================== -->
+      <!-- PAGE 2: AI PIPELINE -->
+      <!-- ===================================== -->
+      <section class="page" id="page-pipeline">
+        <h2 class="page-title">AI Moderation Pipeline</h2>
+        <p class="page-subtitle">A 7-layer defense system that processes every submission with prompt parsing, image analysis, risk scoring, and adaptive learning.</p>
+
+        <div class="pipeline-grid">
+          <div>
+            <div class="panel-header" style="border:none;padding:0 0 14px 0;">
+              <div>
+                <h3 style="font-size:14px;font-weight:600;">Pipeline Layers</h3>
+                <div class="sub" style="color:var(--text-muted);font-size:12px;margin-top:2px;">Click any layer to expand details</div>
+              </div>
+            </div>
+            <div class="pipeline-list" id="pipelineList">
+              <!-- generated dynamically -->
+            </div>
+          </div>
+
+          <div class="sim-panel">
+            <div class="panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Live Simulation</h3>
+                  <div class="sub">Run a sample submission through all 7 layers</div>
+                </div>
+                <button class="btn btn-primary" id="runPipelineBtn">▶ Run Pipeline</button>
+              </div>
+              <div class="panel-body">
+                <div class="sim-output" id="simOutput">
+                  <div style="color:#6b7280;text-align:center;padding:20px;">Click "Run Pipeline" to start simulation…</div>
+                </div>
+
+                <div class="score-grid" id="scoreGrid" style="display:none;">
+                  <div class="score-card" id="scoreNsfw">
+                    <div class="lbl">NSFW Score</div>
+                    <div class="val">2%</div>
+                    <div class="meter"><div style="width:2%"></div></div>
+                  </div>
+                  <div class="score-card" id="scoreFaces">
+                    <div class="lbl">Faces Detected</div>
+                    <div class="val">1</div>
+                    <div class="meter"><div style="width:25%"></div></div>
+                  </div>
+                  <div class="score-card red" id="scoreRisk">
+                    <div class="lbl">Risk Score</div>
+                    <div class="val">18</div>
+                    <div class="meter"><div style="width:18%"></div></div>
+                  </div>
+                  <div class="score-card green" id="scoreSafety">
+                    <div class="lbl">Safety Score</div>
+                    <div class="val">82</div>
+                    <div class="meter"><div style="width:82%"></div></div>
+                  </div>
+                </div>
+
+                <div class="decision-banner approve" id="decisionBanner" style="display:none;">
+                  <span>Decision: AUTO APPROVE</span>
+                  <span style="font-size:11px;opacity:0.8;">Confidence 96%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================== -->
+      <!-- PAGE 3: OPS DASHBOARD -->
+      <!-- ===================================== -->
+      <section class="page" id="page-ops">
+        <h2 class="page-title">Operations Review Dashboard</h2>
+        <p class="page-subtitle">Monitor flagged submissions, review AI signals, and take action on borderline cases.</p>
+
+        <div class="stats-row">
+          <div class="stat">
+            <div class="label">Submissions Today</div>
+            <div class="number">12,438</div>
+            <div class="delta">↑ 8.2% vs yesterday</div>
+          </div>
+          <div class="stat">
+            <div class="label">Auto-Approved</div>
+            <div class="number">11,902</div>
+            <div class="delta">95.7% rate</div>
+          </div>
+          <div class="stat">
+            <div class="label">Manual Review</div>
+            <div class="number">412</div>
+            <div class="delta down">↑ 2.1%</div>
+          </div>
+          <div class="stat">
+            <div class="label">Auto-Rejected</div>
+            <div class="number">124</div>
+            <div class="delta">1.0% rate</div>
+          </div>
+        </div>
+
+        <div class="ops-layout">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3>Review Queue</h3>
+                <div class="sub">Submissions flagged for manual review</div>
+              </div>
+              <button class="btn btn-ghost">⤓ Export</button>
+            </div>
+            <table class="data-table" id="opsTable">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Image</th>
+                  <th>Risk</th>
+                  <th>Safety</th>
+                  <th>Flags</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="opsTableBody"></tbody>
+            </table>
+          </div>
+
+          <div>
+            <div class="panel">
+              <div class="panel-header">
+                <div>
+                  <h3>Submission Detail</h3>
+                  <div class="sub" id="detailSubId">Select a row to inspect</div>
+                </div>
+              </div>
+              <div class="panel-body detail-panel" id="detailPanel">
+                <div class="detail-img" id="detailImg">⛰</div>
+                <div class="kv" id="detailKv">
+                  <div class="row"><span class="k">Original Prompt</span><span class="v" id="dPrompt">—</span></div>
+                  <div class="row"><span class="k">Sanitized</span><span class="v" id="dSanitized">—</span></div>
+                  <div class="row"><span class="k">Risk Score</span><span class="v" id="dRisk">—</span></div>
+                  <div class="row"><span class="k">Safety Score</span><span class="v" id="dSafety">—</span></div>
+                </div>
+                <div>
+                  <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;font-weight:600;">Detected Signals</div>
+                  <div class="signal-list">
+                    <div class="signal"><div class="ic">☺</div><div class="ct" id="sigFaces">0</div><div class="lb">Faces</div></div>
+                    <div class="signal"><div class="ic">A</div><div class="ct" id="sigText">0</div><div class="lb">Text</div></div>
+                    <div class="signal"><div class="ic">◈</div><div class="ct" id="sigLogos">0</div><div class="lb">Logos</div></div>
+                  </div>
+                </div>
+                <div class="action-row">
+                  <button class="btn btn-success" onclick="ops.action('approve')">✓ Approve</button>
+                  <button class="btn btn-danger" onclick="ops.action('reject')">✕ Reject</button>
+                  <button class="btn btn-ghost" onclick="ops.action('request')">↻ Re-do</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="copilot">
+              <div class="copilot-header">
+                <div class="ai-badge">AI</div>
+                <div>
+                  <h4>Reviewer Copilot</h4>
+                  <span>Powered by Hyperface decision engine</span>
+                </div>
+              </div>
+              <div class="copilot-output" id="copilotOutput">
+                Select a submission, then click "Explain Decision" to get an AI-generated rationale.
+              </div>
+              <button class="btn btn-primary" id="explainBtn" style="margin-top:12px;width:100%;justify-content:center;">
+                ✨ Explain Decision
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================== -->
+      <!-- PAGE 4: ARCHITECTURE -->
+      <!-- ===================================== -->
+      <section class="page" id="page-arch">
+        <h2 class="page-title">System Architecture</h2>
+        <p class="page-subtitle">End-to-end view of how customer requests flow through Hyperface's AI, moderation, ops, and banking layers.</p>
+
+        <div class="arch-canvas">
+
+          <div class="arch-section-label">User-Facing</div>
+          <div class="arch-row cols-1">
+            <div class="arch-box customer">
+              <div class="ic">◉</div>
+              <h5>Customer Layer</h5>
+              <p>Mobile / Web App</p>
+            </div>
+          </div>
+          <div class="arrow-down">↓</div>
+
+          <div class="arch-section-label">Intelligence</div>
+          <div class="arch-row cols-2">
+            <div class="arch-box ai">
+              <div class="ic">⌬</div>
+              <h5>Prompt Intelligence</h5>
+              <p>Parse · Sanitize · Embed</p>
+            </div>
+            <div class="arch-box ai">
+              <div class="ic">◈</div>
+              <h5>AI Engine</h5>
+              <p>Generative Card Models</p>
+            </div>
+          </div>
+          <div class="arrow-down">↓</div>
+
+          <div class="arch-section-label">Safety</div>
+          <div class="arch-row cols-1">
+            <div class="arch-box mod">
+              <div class="ic">⛨</div>
+              <h5>Moderation Engine</h5>
+              <p>7-Layer Pipeline · Risk Scoring · Auto Decisions</p>
+            </div>
+          </div>
+          <div class="arrow-down">↓</div>
+
+          <div class="arch-section-label">Operations</div>
+          <div class="arch-row cols-2">
+            <div class="arch-box ops">
+              <div class="ic">◫</div>
+              <h5>Ops Dashboard</h5>
+              <p>Manual Review · Copilot</p>
+            </div>
+            <div class="arch-box bank">
+              <div class="ic">⌘</div>
+              <h5>Bank System</h5>
+              <p>Card Issuance · Compliance</p>
+            </div>
+          </div>
+
+          <div style="margin-top:30px;border-top:1px dashed var(--border);padding-top:24px;">
+            <div class="arch-section-label">Infrastructure</div>
+            <div class="arch-row cols-4">
+              <div class="arch-box infra">
+                <div class="ic">⚙</div>
+                <h5>MCP Gateway</h5>
+                <p>Model Context Protocol</p>
+              </div>
+              <div class="arch-box infra">
+                <div class="ic">▶</div>
+                <h5>CLI Tools</h5>
+                <p>Dev & Ops automation</p>
+              </div>
+              <div class="arch-box infra">
+                <div class="ic">▦</div>
+                <h5>GPU Workers</h5>
+                <p>Inference cluster</p>
+              </div>
+              <div class="arch-box infra">
+                <div class="ic">≡</div>
+                <h5>Queue System</h5>
+                <p>Async job orchestration</p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script>
+/* =====================================================
+   Hyperface AI Card Platform — Prototype JS
+   ===================================================== */
+
+/* ---------- Page Routing ---------- */
+const pages = ['customer', 'pipeline', 'ops', 'arch'];
+const pageTitles = {
+  customer: { title: 'Customer Flow', crumb: 'Workspace · <strong>Customer Flow</strong>' },
+  pipeline: { title: 'AI Pipeline', crumb: 'Workspace · <strong>AI Pipeline</strong>' },
+  ops: { title: 'Ops Dashboard', crumb: 'Workspace · <strong>Ops Dashboard</strong>' },
+  arch: { title: 'System Architecture', crumb: 'Workspace · <strong>Architecture</strong>' }
+};
+
+document.querySelectorAll('.nav-item[data-page]').forEach(el => {
+  el.addEventListener('click', () => {
+    const page = el.dataset.page;
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    document.getElementById('pageTitle').textContent = pageTitles[page].title;
+    document.getElementById('crumbs').innerHTML = pageTitles[page].crumb;
+  });
+});
+
+/* =====================================================
+   PAGE 1: CUSTOMER FLOW
+   ===================================================== */
+const flow = {
+  step: 1,
+  hasImage: false,
+  generated: false,
+  selectedCard: null,
+
+  setStep(n) {
+    this.step = n;
+    ['s1','s2','s3','s4'].forEach((id,i) => {
+      const el = document.getElementById(id);
+      el.classList.remove('active','done');
+      if (i+1 < n) el.classList.add('done');
+      else if (i+1 === n) el.classList.add('active');
+    });
+  }
+};
+
+// File Upload
+const uploadZone = document.getElementById('uploadZone');
+const fileInput = document.getElementById('fileInput');
+const uploadPreview = document.getElementById('uploadPreview');
+
+uploadZone.addEventListener('click', () => fileInput.click());
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('dragover');
+  if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files.length) handleFile(e.target.files[0]);
+});
+
+let currentImageDataUrl = null;       // original (for preview)
+let currentImageDownscaled = null;    // ≤1024px JPEG (for the API)
+
+function handleFile(file) {
+  if (!file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    currentImageDataUrl = ev.target.result;
+    uploadPreview.innerHTML = `<img src="${ev.target.result}" alt="upload" />`;
+    flow.hasImage = true;
+    flow.setStep(2);
+    try {
+      currentImageDownscaled = await downscaleImage(currentImageDataUrl, 1024);
+    } catch (err) {
+      console.warn('downscale failed, using original:', err);
+      currentImageDownscaled = currentImageDataUrl;
+    }
+    refreshPhotoNotice();
+  };
+  reader.readAsDataURL(file);
+}
+
+// Downscale a data URL to a JPEG at most maxDim px on the long edge.
+// Keeps Gemini/OpenAI request bodies small enough that base64 round-trips don't fail.
+function downscaleImage(dataUrl, maxDim) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL('image/jpeg', 0.9));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+// Generate
+const generateBtn = document.getElementById('generateBtn');
+const loadingBar = document.getElementById('loadingBar');
+const loadingFill = document.getElementById('loadingFill');
+const loadingLabel = document.getElementById('loadingLabel');
+const generatedCards = document.getElementById('generatedCards');
+const resultsBadge = document.getElementById('resultsBadge');
+
+/* ---------- Card Generation Engine ---------- */
+const colorMap = {
+  'Midnight Blue': { hex: '#1e3a8a', wash: 'rgba(30,58,138,0.45)' },
+  'Sunset Orange': { hex: '#ea580c', wash: 'rgba(234,88,12,0.45)'  },
+  'Forest Green':  { hex: '#166534', wash: 'rgba(22,101,52,0.45)'  },
+  'Royal Purple':  { hex: '#7c3aed', wash: 'rgba(124,58,237,0.45)' },
+  'Monochrome':    { hex: '#1f2937', wash: 'rgba(31,41,55,0.55)'   }
+};
+
+const styleFilter = {
+  'Minimalist':     'saturate(0.5) brightness(1.06) contrast(1.05)',
+  'Photorealistic': 'saturate(1.18) contrast(1.12)',
+  'Watercolor':     'saturate(1.55) blur(1.2px) brightness(1.05)',
+  'Abstract':       'saturate(1.6) hue-rotate(28deg) contrast(1.25)',
+  'Cinematic':      'saturate(0.85) contrast(1.35) brightness(0.85)'
+};
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload  = () => resolve(i);
+    i.onerror = reject;
+    i.src = src;
+  });
+}
+
+function drawCover(ctx, img, dx, dy, dw, dh) {
+  const ir = img.width / img.height;
+  const cr = dw / dh;
+  let sx, sy, sw, sh;
+  if (ir > cr) {
+    sh = img.height; sw = sh * cr;
+    sx = (img.width - sw) / 2; sy = 0;
+  } else {
+    sw = img.width; sh = sw / cr;
+    sx = 0; sy = (img.height - sh) / 2;
+  }
+  ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+}
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
+function drawChip(ctx, x, y, w, h) {
+  const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+  grad.addColorStop(0,    '#f6d97a');
+  grad.addColorStop(0.5,  '#c89c2a');
+  grad.addColorStop(1,    '#8a6815');
+  ctx.fillStyle = grad;
+  roundRectPath(ctx, x, y, w, h, 6);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  // chip pattern
+  ctx.beginPath();
+  ctx.moveTo(x + 6,        y + h * 0.33);
+  ctx.lineTo(x + w - 6,    y + h * 0.33);
+  ctx.moveTo(x + 6,        y + h * 0.66);
+  ctx.lineTo(x + w - 6,    y + h * 0.66);
+  ctx.moveTo(x + w * 0.33, y + 6);
+  ctx.lineTo(x + w * 0.33, y + h - 6);
+  ctx.moveTo(x + w * 0.66, y + 6);
+  ctx.lineTo(x + w * 0.66, y + h - 6);
+  ctx.stroke();
+  ctx.strokeRect(x + w * 0.28, y + h * 0.28, w * 0.44, h * 0.44);
+}
+
+function embossText(ctx, text, x, y, font) {
+  ctx.font = font;
+  ctx.textBaseline = 'alphabetic';
+  // drop shadow (down-right) — gives the raised look
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillText(text, x + 2, y + 2);
+  // soft top highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillText(text, x - 0.5, y - 0.5);
+  // main glyph
+  ctx.fillStyle = 'rgba(255,255,255,0.97)';
+  ctx.fillText(text, x, y);
+}
+
+/* ---------- AI Image Generation ---------- */
+const aiConfig = {
+  provider: localStorage.getItem('hyperface_ai_provider') || 'pollinations',
+  apiKey:   localStorage.getItem('hyperface_ai_key')      || ''
+};
+
+const aiProviderSel = document.getElementById('aiProvider');
+const aiKeyInput    = document.getElementById('aiKey');
+const aiKeyRow      = document.getElementById('aiKeyRow');
+const aiError       = document.getElementById('aiError');
+const photoNotice   = document.getElementById('photoNotice');
+
+aiProviderSel.value = aiConfig.provider;
+aiKeyInput.value    = aiConfig.apiKey;
+
+function refreshKeyVisibility() {
+  aiKeyRow.style.display = aiProviderSel.value === 'pollinations' ? 'none' : '';
+}
+function refreshPhotoNotice() {
+  if (!currentImageDataUrl) {
+    photoNotice.style.display = 'none';
+    return;
+  }
+  const provider = aiProviderSel.value;
+  photoNotice.style.display = '';
+  if (provider === 'pollinations') {
+    photoNotice.style.background = 'var(--red-soft)';
+    photoNotice.style.color = 'var(--red)';
+    photoNotice.style.borderColor = 'var(--red)';
+    photoNotice.innerHTML = '⚠ <strong>Pollinations is text-only</strong> — it cannot use your uploaded photo. To put yourself on the card, switch the AI Provider to <strong>Google Gemini</strong> (free key at aistudio.google.com/apikey) or <strong>OpenAI</strong>.';
+  } else {
+    photoNotice.style.background = 'var(--primary-soft)';
+    photoNotice.style.color = 'var(--primary)';
+    photoNotice.style.borderColor = 'var(--primary)';
+    photoNotice.innerHTML = `✓ Your uploaded photo will be sent to <strong>${provider === 'gemini' ? 'Gemini 2.5 Flash Image' : 'OpenAI gpt-image-1'}</strong> as a reference, and edited per your prompt.`;
+  }
+}
+aiProviderSel.addEventListener('change', () => { refreshKeyVisibility(); refreshPhotoNotice(); });
+refreshKeyVisibility();
+refreshPhotoNotice();
+
+function buildPrompt(userPrompt, style, mood, color, background, hasReference) {
+  const parts = [];
+  if (hasReference) {
+    parts.push(
+      'Edit the uploaded reference photo of the person',
+      'keep the person\'s face, hair, skin tone, body proportions and identity exactly as in the reference',
+      'follow these instructions',
+      userPrompt
+    );
+  } else {
+    parts.push(userPrompt);
+  }
+  parts.push(
+    `${style} style`,
+    `${mood.toLowerCase()} mood`,
+    `${color} color palette`,
+    `${background.toLowerCase()} background`,
+    'premium credit card artwork',
+    'wide 16:10 landscape composition',
+    'high detail, professional, banking-grade aesthetic'
+  );
+  return parts.join('. ');
+}
+
+async function generateImagesWithAI(prompt, count = 3, referenceImage = null) {
+  const tasks = [];
+  for (let i = 0; i < count; i++) {
+    if (aiConfig.provider === 'pollinations') {
+      if (referenceImage && i === 0) {
+        console.warn('[Pollinations] reference photo ignored — provider is text-to-image only.');
+      }
+      tasks.push(fetchPollinationsImage(prompt, Math.floor(Math.random() * 1e9), i));
+    } else if (aiConfig.provider === 'gemini') {
+      tasks.push(generateWithGemini(prompt, i, referenceImage));
+    } else {
+      tasks.push(generateWithOpenAI(prompt, i, referenceImage));
+    }
+  }
+  return Promise.all(tasks);
+}
+
+// Fetch the Pollinations image as a blob → object URL.
+// Doing it via fetch() (instead of letting <img> resolve the URL) gives us
+// real HTTP error messages and lets us fall back gracefully.
+async function fetchPollinationsImage(prompt, seed, variantIdx) {
+  const variantHint = ['cinematic angle', 'soft natural light', 'dramatic lighting'][variantIdx] || '';
+  const finalPrompt = `${prompt}, ${variantHint}`;
+  const params = new URLSearchParams({
+    width: '768',
+    height: '480',
+    seed: String(seed),
+    nologo: 'true',
+    enhance: 'true',
+    referrer: 'hyperface-prototype'
+  });
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(finalPrompt)}?${params}`;
+  console.log('[Pollinations] →', url);
+
+  try {
+    const res = await fetch(url, { method: 'GET', mode: 'cors' });
+    console.log('[Pollinations] ←', res.status, res.headers.get('content-type'));
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const blob = await res.blob();
+    if (!blob.type.startsWith('image/')) {
+      throw new Error(`Unexpected content type: ${blob.type || 'unknown'}`);
+    }
+    return URL.createObjectURL(blob);
+  } catch (err) {
+    console.warn('[Pollinations] failed:', err.message, '— using picsum fallback so the card still renders.');
+    // Hard fallback: picsum.photos serves a deterministic real photograph per seed.
+    // Not AI-generated, but guarantees the UI never shows a broken image.
+    return `https://picsum.photos/seed/${seed}/768/480`;
+  }
+}
+
+// Candidate Gemini image-generation models, tried in order. Google renames these
+// every few months — the first one that responds without 404 is cached for the session.
+const GEMINI_MODEL_CANDIDATES = [
+        // Nano Banana Pro (highest quality)
+  'gemini-3.1-flash-image-preview',  // Nano Banana 2
+  'gemini-2.5-flash-image',          // Nano Banana (GA)
+  'gemini-2.5-flash-image-preview',  // older preview alias
+  'gemini-2.0-flash-preview-image-generation'
+];
+let geminiResolvedModel = localStorage.getItem('hyperface_gemini_model') || null;
+
+async function callGeminiOnce(model, body) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(aiConfig.apiKey)}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  return res;
+}
+
+async function generateWithGemini(prompt, variantIdx, referenceImage = null) {
+  if (!aiConfig.apiKey) throw new Error('Gemini API key required. Get a free key at aistudio.google.com/apikey');
+  const variantHint = ['variation A, soft natural light', 'variation B, dramatic cinematic light', 'variation C, alternative composition and angle'][variantIdx] || '';
+  const fullPrompt = `${prompt}. ${variantHint}`;
+
+  const parts = [{ text: fullPrompt }];
+  if (referenceImage) {
+    const m = referenceImage.match(/^data:([^;]+);base64,(.+)$/);
+    if (!m) throw new Error('Reference image is not a valid data URL');
+    parts.push({
+      inline_data: {           // Gemini REST accepts snake_case
+        mime_type: m[1],
+        data: m[2]
+      }
+    });
+  }
+
+  const body = {
+    contents: [{ parts }],
+    generationConfig: { responseModalities: ['IMAGE'] }
+  };
+
+  // Build the candidate list — start with the cached working model if we have one
+  const candidates = geminiResolvedModel
+    ? [geminiResolvedModel, ...GEMINI_MODEL_CANDIDATES.filter(m => m !== geminiResolvedModel)]
+    : GEMINI_MODEL_CANDIDATES;
+
+  let lastErr = null;
+  for (const model of candidates) {
+    console.log('[Gemini] trying model:', model);
+    const res = await callGeminiOnce(model, body);
+    if (res.status === 404) {
+      console.warn(`[Gemini] ${model} → 404, trying next candidate`);
+      lastErr = `404 ${model}`;
+      continue;
+    }
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Gemini ${res.status} (${model}): ${txt.slice(0, 200)}`);
+    }
+    // success — cache this model name
+    geminiResolvedModel = model;
+    localStorage.setItem('hyperface_gemini_model', model);
+
+    const data = await res.json();
+    const part = data?.candidates?.[0]?.content?.parts?.find(p => p.inlineData || p.inline_data);
+    const inline = part?.inlineData || part?.inline_data;
+    if (!inline) {
+      const finishReason = data?.candidates?.[0]?.finishReason;
+      throw new Error(`Gemini returned no image data (finishReason: ${finishReason || 'unknown'}). The prompt may have been blocked by safety filters.`);
+    }
+    return `data:${inline.mimeType || inline.mime_type};base64,${inline.data}`;
+  }
+  throw new Error(`Gemini: no compatible image model found. Tried: ${candidates.join(', ')}. Last error: ${lastErr}`);
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const res = await fetch(dataUrl);
+  return res.blob();
+}
+
+async function generateWithOpenAI(prompt, variantIdx, referenceImage = null) {
+  if (!aiConfig.apiKey) throw new Error('OpenAI API key required. Get one at platform.openai.com/api-keys');
+  const variantHint = ['variation A', 'variation B', 'variation C'][variantIdx] || '';
+  const fullPrompt = `${prompt}. ${variantHint}`;
+
+  // If a reference photo was uploaded, use the image-edit endpoint with gpt-image-1
+  // (DALL·E 3 cannot accept input images).
+  if (referenceImage) {
+    const blob = await dataUrlToBlob(referenceImage);
+    const fd = new FormData();
+    fd.append('model', 'gpt-image-1');
+    fd.append('prompt', fullPrompt);
+    fd.append('image', blob, 'reference.jpg');
+    fd.append('size', '1536x1024');
+    fd.append('n', '1');
+
+    const res = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + aiConfig.apiKey },
+      body: fd
+    });
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`OpenAI ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const data = await res.json();
+    const item = data.data[0];
+    return item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
+  }
+
+  // No reference image → fall back to plain DALL·E 3 generation
+  const res = await fetch('https://api.openai.com/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer ' + aiConfig.apiKey
+    },
+    body: JSON.stringify({
+      model: 'dall-e-3',
+      prompt: fullPrompt,
+      n: 1,
+      size: '1792x1024'
+    })
+  });
+  if (!res.ok) {
+    const txt = await res.text();
+    throw new Error(`OpenAI ${res.status}: ${txt.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return data.data[0].url;
+}
+
+generateBtn.addEventListener('click', async () => {
+  const promptVal = document.getElementById('prompt').value.trim();
+  const styleVal  = document.getElementById('style').value;
+  const moodVal   = document.getElementById('mood').value;
+  const colorVal  = document.getElementById('color').value;
+  const bgVal     = document.getElementById('background').value;
+
+  if (!flow.hasImage) { flashUploadZone(); return; }
+  if (!promptVal)    { document.getElementById('prompt').focus(); return; }
+
+  // persist provider + key
+  aiConfig.provider = aiProviderSel.value;
+  aiConfig.apiKey   = aiKeyInput.value.trim();
+  localStorage.setItem('hyperface_ai_provider', aiConfig.provider);
+  localStorage.setItem('hyperface_ai_key',      aiConfig.apiKey);
+
+  aiError.classList.remove('active');
+  aiError.textContent = '';
+
+  const referenceImage = currentImageDownscaled || currentImageDataUrl;
+  const fullPrompt = buildPrompt(promptVal, styleVal, moodVal, colorVal, bgVal, !!referenceImage);
+
+  flow.setStep(3);
+  generateBtn.disabled = true;
+  loadingBar.classList.add('active');
+  loadingFill.style.width = '5%';
+  loadingLabel.textContent = referenceImage && aiConfig.provider !== 'pollinations'
+    ? `Sending photo + prompt to ${aiConfig.provider}…`
+    : `Sending prompt to ${aiConfig.provider}…`;
+
+  // smooth progress animation while we wait on the network
+  let pct = 5;
+  const ticker = setInterval(() => {
+    pct = Math.min(pct + Math.random() * 7 + 2, 92);
+    loadingFill.style.width = pct + '%';
+    if (pct < 30)      loadingLabel.textContent = 'Parsing creative prompt…';
+    else if (pct < 55) loadingLabel.textContent = 'Running generation model…';
+    else if (pct < 80) loadingLabel.textContent = 'Composing card variants…';
+    else               loadingLabel.textContent = 'Finalizing previews…';
+  }, 400);
+
+  try {
+    const imageUrls = await generateImagesWithAI(fullPrompt, 3, referenceImage);
+    clearInterval(ticker);
+    loadingFill.style.width = '100%';
+    loadingLabel.textContent = 'Done.';
+    setTimeout(() => {
+      loadingBar.classList.remove('active');
+      generateBtn.disabled = false;
+      renderGeneratedCards(imageUrls);
+      flow.setStep(4);
+    }, 250);
+  } catch (err) {
+    clearInterval(ticker);
+    loadingBar.classList.remove('active');
+    generateBtn.disabled = false;
+    aiError.textContent = '⚠ ' + err.message;
+    aiError.classList.add('active');
+    console.error(err);
+  }
+});
+
+function flashUploadZone() {
+  uploadZone.style.borderColor = 'var(--red)';
+  uploadZone.style.background = 'var(--red-soft)';
+  setTimeout(() => {
+    uploadZone.style.borderColor = '';
+    uploadZone.style.background = '';
+  }, 800);
+}
+
+function renderGeneratedCards(imageUrls) {
+  generatedCards.innerHTML = imageUrls.map((url, i) => `
+    <div class="gen-card" data-idx="${i}" data-url="${url}">
+      <div class="gen-skeleton"></div>
+      <img alt="AI card design ${i + 1}" loading="lazy" />
+      <div class="gen-overlay">
+        <div class="gen-brand">HYPERFACE</div>
+        <div class="gen-bottom">
+          <div class="gen-name">NISHANT A.</div>
+          <div class="gen-num">•••• 4242</div>
+        </div>
+      </div>
+      <div class="check">✓</div>
+    </div>
+  `).join('');
+  resultsBadge.textContent = '3 designs ready';
+  resultsBadge.className = 'badge blue';
+
+  document.querySelectorAll('.gen-card').forEach(card => {
+    const img      = card.querySelector('img');
+    const skeleton = card.querySelector('.gen-skeleton');
+    const url      = card.dataset.url;
+
+    img.addEventListener('load', () => {
+      if (skeleton) skeleton.remove();
+    });
+    img.addEventListener('error', () => {
+      if (skeleton) {
+        skeleton.style.animation = 'none';
+        skeleton.style.background = '#1f2937';
+        skeleton.style.display = 'flex';
+        skeleton.style.alignItems = 'center';
+        skeleton.style.justifyContent = 'center';
+        skeleton.style.color = '#ef4444';
+        skeleton.style.fontSize = '12px';
+        skeleton.style.padding = '10px';
+        skeleton.style.textAlign = 'center';
+        skeleton.textContent = 'Image failed to load';
+      }
+      console.error('[gen-card] image failed:', url);
+    });
+    // assign src last so the listeners are guaranteed to be wired up
+    img.src = url;
+
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.gen-card').forEach(g => g.classList.remove('selected'));
+      card.classList.add('selected');
+      flow.selectedCard = card.dataset.idx;
+      resultsBadge.textContent = 'Design ' + (parseInt(card.dataset.idx) + 1) + ' selected';
+      resultsBadge.className = 'badge green';
+    });
+  });
+}
+
+flow.setStep(1);
+
+/* =====================================================
+   PAGE 2: AI PIPELINE
+   ===================================================== */
+const layers = [
+  {
+    id: 0, key: 'L0', name: 'Prompt Intelligence',
+    desc: 'Parses, normalizes, and embeds the user prompt',
+    does: 'Tokenizes raw user input, extracts intent, removes prompt-injection attempts, and produces a sanitized embedding for downstream layers.',
+    input: 'raw_prompt: "sunset mountain with my face"',
+    output: 'sanitized: "sunset mountain landscape", intent: "landscape"',
+    example: 'tokens: 6 · injection_score: 0.02 · intent: landscape'
+  },
+  {
+    id: 1, key: 'L1', name: 'Upload Guardrails',
+    desc: 'File type, size, EXIF and origin checks',
+    does: 'Validates MIME type, file integrity, image dimensions, EXIF metadata, and rejects malicious payloads or unsupported formats before further processing.',
+    input: 'file: photo.jpg (2.3 MB, 1920×1080)',
+    output: 'valid: true, format: JPEG, exif_clean: true',
+    example: 'mime: image/jpeg · size_ok: ✓ · exif_strip: ✓'
+  },
+  {
+    id: 2, key: 'L2', name: 'Image Analysis',
+    desc: 'Vision models extract content signals',
+    does: 'Runs computer vision models for face detection, OCR, logo detection, scene classification, and object recognition.',
+    input: 'image_tensor: [1920×1080×3]',
+    output: 'faces: 1, text_blocks: 0, logos: [], scene: "outdoor/landscape"',
+    example: 'faces: 1 · ocr: — · logos: 0 · scene: landscape'
+  },
+  {
+    id: 3, key: 'L3', name: 'Risk Scoring',
+    desc: 'Combines all signals into a unified risk score',
+    does: 'Weighted ensemble of NSFW model, brand-safety classifier, IP detection, and prompt-image alignment to produce a 0–100 risk score.',
+    input: 'signals: { nsfw: 0.02, logo: 0, faces: 1, ocr: 0 }',
+    output: 'risk_score: 18, safety_score: 82',
+    example: 'nsfw: 2% · risk: 18 · safety: 82'
+  },
+  {
+    id: 4, key: 'L4', name: 'Auto Approval',
+    desc: 'Routes submission based on score thresholds',
+    does: 'Applies decision policy: risk ≤ 25 auto-approves, 25–60 routes to ops review, > 60 auto-rejects. Policies are versioned and per-bank.',
+    input: 'risk_score: 18, policy: BANK_DEFAULT_v3',
+    output: 'decision: AUTO_APPROVE, confidence: 0.96',
+    example: 'rule: risk≤25 → APPROVE'
+  },
+  {
+    id: 5, key: 'L5', name: 'Fraud Detection',
+    desc: 'Cross-references account, device, and image history',
+    does: 'Checks for image reuse across accounts, device fingerprint anomalies, velocity attacks, and known-bad embeddings via vector similarity.',
+    input: 'user_id, device_fp, image_hash',
+    output: 'fraud_score: 0.04, duplicates: 0',
+    example: 'image_hash: novel · device: trusted · velocity: ok'
+  },
+  {
+    id: 6, key: 'L6', name: 'Learning System',
+    desc: 'Feeds reviewer decisions back into model training',
+    does: 'Aggregates ops decisions, customer disputes, and false-positive signals into a continuous learning loop that retrains thresholds nightly.',
+    input: 'reviewer_action: APPROVE, original_decision: REVIEW',
+    output: 'feedback_logged: true, threshold_delta: -0.5',
+    example: 'training_examples_today: 412'
+  }
+];
+
+const pipelineList = document.getElementById('pipelineList');
+pipelineList.innerHTML = layers.map(l => `
+  <div class="layer-card" data-id="${l.id}">
+    <div class="layer-row">
+      <div class="layer-icon">${l.key}</div>
+      <div class="layer-info">
+        <h4>Layer ${l.id}: ${l.name}</h4>
+        <p>${l.desc}</p>
+      </div>
+      <div class="layer-status">Idle</div>
+    </div>
+    <div class="layer-detail">
+      <div class="detail-row"><div class="key">What it does</div><div class="val">${l.does}</div></div>
+      <div class="detail-row"><div class="key">Input</div><div class="val"><code>${l.input}</code></div></div>
+      <div class="detail-row"><div class="key">Output</div><div class="val"><code>${l.output}</code></div></div>
+      <div class="detail-row"><div class="key">Example</div><div class="val"><code>${l.example}</code></div></div>
+    </div>
+  </div>
+`).join('');
+
+document.querySelectorAll('.layer-card').forEach(c => {
+  c.addEventListener('click', () => {
+    document.querySelectorAll('.layer-card').forEach(x => {
+      if (x !== c) x.classList.remove('expanded','active');
+    });
+    c.classList.toggle('expanded');
+    c.classList.toggle('active');
+  });
+});
+
+// Live Simulation
+const simOutput = document.getElementById('simOutput');
+const runPipelineBtn = document.getElementById('runPipelineBtn');
+const scoreGrid = document.getElementById('scoreGrid');
+const decisionBanner = document.getElementById('decisionBanner');
+
+runPipelineBtn.addEventListener('click', () => {
+  // Reset
+  document.querySelectorAll('.layer-card').forEach(c => {
+    c.classList.remove('processing','done','expanded','active');
+    c.querySelector('.layer-status').textContent = 'Idle';
+  });
+  simOutput.innerHTML = '';
+  scoreGrid.style.display = 'none';
+  decisionBanner.style.display = 'none';
+  runPipelineBtn.disabled = true;
+
+  // Generate randomized result
+  const nsfw = Math.random() * 8;
+  const faces = Math.floor(Math.random() * 3);
+  const logos = Math.random() < 0.15 ? 1 : 0;
+  const text = Math.floor(Math.random() * 3);
+  const risk = Math.round(nsfw * 3 + logos * 25 + text * 4 + faces * 2 + Math.random() * 10);
+  const safety = 100 - risk;
+
+  let decision, decisionClass, decisionText;
+  if (risk <= 25) {
+    decision = 'AUTO APPROVE';
+    decisionClass = 'approve';
+    decisionText = 'Confidence ' + (94 + Math.floor(Math.random()*5)) + '%';
+  } else if (risk <= 60) {
+    decision = 'MANUAL REVIEW';
+    decisionClass = 'review';
+    decisionText = 'Routed to ops queue';
+  } else {
+    decision = 'AUTO REJECT';
+    decisionClass = 'reject';
+    decisionText = 'Policy violation detected';
+  }
+
+  const lines = [
+    { t: '$ pipeline.run --submission=SUB_8412', c: 'info' },
+    { t: '[L0] Prompt → parsed → sanitized', layer: 0 },
+    { t: '[L0] tokens=6 intent=landscape injection=0.02', c: 'success' },
+    { t: '[L1] Upload → guardrails → ✓ valid JPEG', layer: 1, c: 'success' },
+    { t: '[L2] Image → vision model → analyzing…', layer: 2 },
+    { t: `[L2] faces=${faces} text=${text} logos=${logos} scene=outdoor`, c: 'success' },
+    { t: '[L3] Combining signals → computing risk…', layer: 3 },
+    { t: `[L3] nsfw=${nsfw.toFixed(1)}% risk=${risk} safety=${safety}`, c: risk > 25 ? 'warn' : 'success' },
+    { t: '[L4] Applying policy BANK_DEFAULT_v3', layer: 4 },
+    { t: `[L4] decision=${decision}`, c: risk <= 25 ? 'success' : (risk <= 60 ? 'warn' : 'warn') },
+    { t: '[L5] Cross-referencing fraud signals…', layer: 5 },
+    { t: '[L5] image_hash=novel device=trusted ✓', c: 'success' },
+    { t: '[L6] Logging to learning system…', layer: 6 },
+    { t: '[L6] feedback_queue ← submission_record', c: 'success' },
+    { t: '✓ Pipeline complete (1.84s)', c: 'success' }
+  ];
+
+  let i = 0;
+  const step = () => {
+    if (i >= lines.length) {
+      // show scores
+      scoreGrid.style.display = 'grid';
+      document.querySelector('#scoreNsfw .val').textContent = nsfw.toFixed(1) + '%';
+      document.querySelector('#scoreNsfw .meter > div').style.width = (nsfw*5) + '%';
+      document.querySelector('#scoreFaces .val').textContent = faces;
+      document.querySelector('#scoreFaces .meter > div').style.width = (faces * 30) + '%';
+      document.querySelector('#scoreRisk .val').textContent = risk;
+      document.querySelector('#scoreRisk .meter > div').style.width = risk + '%';
+      document.querySelector('#scoreRisk').className = 'score-card ' + (risk <= 25 ? 'green' : risk <= 60 ? 'yellow' : 'red');
+      document.querySelector('#scoreSafety .val').textContent = safety;
+      document.querySelector('#scoreSafety .meter > div').style.width = safety + '%';
+
+      decisionBanner.style.display = 'flex';
+      decisionBanner.className = 'decision-banner ' + decisionClass;
+      decisionBanner.innerHTML = `<span>Decision: ${decision}</span><span style="font-size:11px;opacity:0.8;">${decisionText}</span>`;
+      runPipelineBtn.disabled = false;
+      return;
+    }
+    const ln = lines[i++];
+    const div = document.createElement('div');
+    div.className = 'sim-line ' + (ln.c || '');
+    div.textContent = ln.t;
+    simOutput.appendChild(div);
+    simOutput.scrollTop = simOutput.scrollHeight;
+
+    if (ln.layer !== undefined) {
+      const card = document.querySelector(`.layer-card[data-id="${ln.layer}"]`);
+      // mark previous as done
+      document.querySelectorAll('.layer-card.processing').forEach(p => {
+        p.classList.remove('processing');
+        p.classList.add('done');
+        p.querySelector('.layer-status').textContent = '✓ Done';
+      });
+      card.classList.add('processing');
+      card.querySelector('.layer-status').textContent = 'Processing…';
+    }
+    setTimeout(step, 320);
+  };
+
+  setTimeout(() => {
+    step();
+    setTimeout(() => {
+      // mark all done at end
+      document.querySelectorAll('.layer-card.processing').forEach(p => {
+        p.classList.remove('processing');
+        p.classList.add('done');
+        p.querySelector('.layer-status').textContent = '✓ Done';
+      });
+    }, lines.length * 320 + 100);
+  }, 200);
+});
+
+/* =====================================================
+   PAGE 3: OPS DASHBOARD
+   ===================================================== */
+const submissions = [
+  { id: 'SUB_8412', emoji: '⛰', risk: 18, safety: 82, flags: ['low-risk'], status: 'auto-approved', statusClass: 'green',
+    prompt: 'sunset mountain with my face', sanitized: 'sunset mountain landscape', faces: 1, text: 0, logos: 0,
+    rationale: 'This image contains a single face and a natural landscape. No logos, text, or unsafe content detected. Risk score is well below the auto-approve threshold.' },
+  { id: 'SUB_8413', emoji: '🌃', risk: 42, safety: 58, flags: ['ocr-text', 'review'], status: 'pending review', statusClass: 'yellow',
+    prompt: 'city skyline with neon "BMW" sign', sanitized: 'city skyline at night', faces: 0, text: 2, logos: 1,
+    rationale: 'Detected text "BMW" matches a known brand name. Logo confidence 0.71. Recommend reviewer verification of trademark usage.' },
+  { id: 'SUB_8414', emoji: '🌊', risk: 11, safety: 89, flags: ['low-risk'], status: 'auto-approved', statusClass: 'green',
+    prompt: 'serene ocean wave watercolor', sanitized: 'serene ocean wave watercolor', faces: 0, text: 0, logos: 0,
+    rationale: 'Pure scenery image, no people or text detected. Watercolor style is well-aligned with prompt. Auto-approved with high confidence.' },
+  { id: 'SUB_8415', emoji: '👥', risk: 67, safety: 33, flags: ['multi-face', 'minors?'], status: 'flagged', statusClass: 'red',
+    prompt: 'family photo at beach', sanitized: 'family photo at beach', faces: 4, text: 0, logos: 0,
+    rationale: 'Multiple faces detected (4), with at least one classified as a possible minor. Card personalization with minors requires explicit consent verification per policy.' },
+  { id: 'SUB_8416', emoji: '🐱', risk: 8, safety: 92, flags: ['low-risk'], status: 'auto-approved', statusClass: 'green',
+    prompt: 'my cat in cinematic lighting', sanitized: 'cat portrait cinematic', faces: 0, text: 0, logos: 0,
+    rationale: 'Pet image, no people, text, or brands. Risk extremely low. Auto-approved.' },
+  { id: 'SUB_8417', emoji: '🏎', risk: 51, safety: 49, flags: ['logo', 'review'], status: 'pending review', statusClass: 'yellow',
+    prompt: 'red ferrari at sunset', sanitized: 'red sports car at sunset', faces: 0, text: 1, logos: 1,
+    rationale: 'Detected Ferrari brand reference in prompt and a probable logo on the vehicle. Trademark licensing must be confirmed before approval.' },
+  { id: 'SUB_8418', emoji: '🌸', risk: 6, safety: 94, flags: ['low-risk'], status: 'auto-approved', statusClass: 'green',
+    prompt: 'cherry blossoms in spring', sanitized: 'cherry blossoms in spring', faces: 0, text: 0, logos: 0,
+    rationale: 'Floral scenery, no risk signals. Auto-approved.' },
+  { id: 'SUB_8419', emoji: '⚠', risk: 88, safety: 12, flags: ['nsfw', 'auto-rejected'], status: 'rejected', statusClass: 'red',
+    prompt: '[redacted by policy]', sanitized: '[blocked]', faces: 1, text: 0, logos: 0,
+    rationale: 'NSFW classifier returned 0.84 confidence. Image violates content policy section 4.2. Auto-rejected with no reviewer required.' }
+];
+
+const ops = {
+  selected: null,
+
+  init() {
+    const tbody = document.getElementById('opsTableBody');
+    tbody.innerHTML = submissions.map(s => `
+      <tr data-id="${s.id}">
+        <td><strong>${s.id}</strong></td>
+        <td><div class="table-thumb">${s.emoji}</div></td>
+        <td><strong>${s.risk}</strong></td>
+        <td>${s.safety}</td>
+        <td>${s.flags.map(f => `<span class="flag-tag">${f}</span>`).join('')}</td>
+        <td><span class="badge ${s.statusClass}">${s.status}</span></td>
+      </tr>
+    `).join('');
+    tbody.querySelectorAll('tr').forEach(tr => {
+      tr.addEventListener('click', () => this.select(tr.dataset.id));
+    });
+    this.select(submissions[0].id);
+  },
+
+  select(id) {
+    this.selected = submissions.find(s => s.id === id);
+    document.querySelectorAll('#opsTable tbody tr').forEach(tr => tr.classList.toggle('selected', tr.dataset.id === id));
+    const s = this.selected;
+    document.getElementById('detailSubId').textContent = s.id;
+    document.getElementById('detailImg').textContent = s.emoji;
+    document.getElementById('dPrompt').textContent = '"' + s.prompt + '"';
+    document.getElementById('dSanitized').textContent = '"' + s.sanitized + '"';
+    document.getElementById('dRisk').textContent = s.risk;
+    document.getElementById('dSafety').textContent = s.safety;
+    document.getElementById('sigFaces').textContent = s.faces;
+    document.getElementById('sigText').textContent = s.text;
+    document.getElementById('sigLogos').textContent = s.logos;
+    document.getElementById('copilotOutput').innerHTML = 'Click <em>Explain Decision</em> for an AI rationale on this submission.';
+  },
+
+  action(type) {
+    if (!this.selected) return;
+    const map = {
+      approve: { txt: 'approved', cls: 'green' },
+      reject:  { txt: 'rejected', cls: 'red' },
+      request: { txt: 're-do requested', cls: 'yellow' }
+    };
+    const m = map[type];
+    this.selected.status = m.txt;
+    this.selected.statusClass = m.cls;
+    const tr = document.querySelector(`#opsTable tr[data-id="${this.selected.id}"]`);
+    tr.querySelector('td:last-child').innerHTML = `<span class="badge ${m.cls}">${m.txt}</span>`;
+    flashEl(tr);
+  }
+};
+
+function flashEl(el) {
+  el.style.background = 'var(--green-soft)';
+  setTimeout(() => el.style.background = '', 600);
+}
+
+ops.init();
+
+// Copilot Explain
+document.getElementById('explainBtn').addEventListener('click', () => {
+  if (!ops.selected) return;
+  const out = document.getElementById('copilotOutput');
+  const text = ops.selected.rationale;
+  out.innerHTML = '';
+  let i = 0;
+  const cursor = '<span class="typing-cursor"></span>';
+  const type = () => {
+    if (i >= text.length) {
+      out.innerHTML = text + ' <em>— recommended: ' +
+        (ops.selected.risk <= 25 ? 'Approve' : ops.selected.risk <= 60 ? 'Manual Review' : 'Reject') + '</em>';
+      return;
+    }
+    out.innerHTML = text.slice(0, ++i) + cursor;
+    setTimeout(type, 14);
+  };
+  type();
+});
+
+</script>
+</body>
+</html>
