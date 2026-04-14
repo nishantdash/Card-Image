@@ -1,0 +1,42 @@
+export const INITIAL_OPS_QUEUE = [
+  {
+    id: 'CUST-8492', cardholderName: 'AMIT SHARMA', time: '2m ago',
+    risk: 34, safety: 66, confidence: 32,
+    style: 'cyberpunk', mood: 'futuristic',
+    flags: ['celebrity:0.42','clip:0.31'],
+    signals: { promptRisk: 28, nsfw: 1.2, faces: 1, celebrity: 0.42, logoDetected: false, textChars: 0, clipSimilarity: 0.31, userRisk: 0.08 },
+    art: 'art-cyberpunk mood-futuristic',
+  },
+  {
+    id: 'CUST-8488', cardholderName: 'PRIYA NAIR', time: '4m ago',
+    risk: 22, safety: 78, confidence: 56,
+    style: 'watercolor', mood: 'vibrant',
+    flags: ['text:14ch'],
+    signals: { promptRisk: 12, nsfw: 0.4, faces: 1, celebrity: 0.05, logoDetected: false, textChars: 14, clipSimilarity: 0.18, userRisk: 0.05 },
+    art: 'art-watercolor mood-vibrant',
+  },
+  {
+    id: 'CUST-8485', cardholderName: 'RAHUL VERMA', time: '6m ago',
+    risk: 51, safety: 49, confidence: 2,
+    style: '3d-render', mood: 'dark',
+    flags: ['logo','brand'],
+    signals: { promptRisk: 30, nsfw: 0.8, faces: 0, celebrity: 0.0, logoDetected: true, textChars: 4, clipSimilarity: 0.42, userRisk: 0.18 },
+    art: 'art-3d-render mood-dark', warn: true,
+  },
+  {
+    id: 'CUST-8479', cardholderName: 'NEHA GUPTA', time: '8m ago',
+    risk: 28, safety: 72, confidence: 44,
+    style: 'vintage-poster', mood: 'calm',
+    flags: ['ocr:phone'],
+    signals: { promptRisk: 18, nsfw: 0.2, faces: 0, celebrity: 0.0, logoDetected: false, textChars: 22, clipSimilarity: 0.21, userRisk: 0.09 },
+    art: 'art-vintage-poster mood-calm',
+  },
+  {
+    id: 'CUST-8466', cardholderName: 'ARJUN MEHTA', time: '14m ago',
+    risk: 67, safety: 33, confidence: 34,
+    style: 'oil-painting', mood: 'dark',
+    flags: ['celebrity:0.71','politics'],
+    signals: { promptRisk: 60, nsfw: 0.3, faces: 1, celebrity: 0.71, logoDetected: false, textChars: 0, clipSimilarity: 0.51, userRisk: 0.22 },
+    art: 'art-oil-painting mood-dark', bad: true,
+  },
+];

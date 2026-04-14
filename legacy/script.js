@@ -16,6 +16,8 @@ const state = {
   // 'horizontal' | 'vertical' — current live preview orientation.
   // Travels with the submission so the ops dashboard can render
   // vertical cards differently from horizontal ones.
+  regenCount: 0,
+  hasGenerated: false,
   cardOrientation: 'horizontal',
   // Issuer bank for which this card is being personalized.
   // Drives which approved template the embosser pipeline pulls.
@@ -634,6 +636,13 @@ async function generateFinalImage() {
   const aiBadge    = $('#aiBadge');
   const errBanner  = $('#errorBanner');
 
+  // Track regeneration attempts — skip the very first generation
+  if (state.hasGenerated) {
+    state.regenCount++;
+    updateRegenCounter();
+  }
+  state.hasGenerated = true;
+
   // Reset state from any previous run
   cardArt.classList.remove('rejected');
   errBanner.classList.add('hidden');
@@ -779,7 +788,16 @@ async function ensureCurrentVariationOrientation() {
   try {
     console.log('[orient] regenerating variation %d for %s', idx, orient);
     const prompt = state.lastPrompt || buildFullPrompt();
-    const result = await callProvider(prompt, null, orient);
+
+    // In edit mode with Gemini, pass the uploaded image so the vertical
+    // regeneration uses image-to-image instead of falling back to text-to-image.
+    let inputImage = null;
+    const isEdit = state.source === 'upload' && !!state.uploaded;
+    if (isEdit && settings.provider === 'gemini') {
+      inputImage = await resizeImageDataURL(state.uploaded.dataURL, 1024, 0.9);
+    }
+
+    const result = await callProvider(prompt, inputImage, orient);
     if (!result?.src) throw new Error('Provider returned no image');
     v.cache[orient] = result.src;
     v.src = result.src;
@@ -903,7 +921,12 @@ function gotoStep(n) {
 function validateNext() {
   let ok = true;
   if (state.step === 1) ok = !!state.source && (state.source === 'generate' || !!state.uploaded);
-  if (state.step === 2) ok = !!state.selections.style;
+  if (state.step === 2) {
+    const { style, mood, color, background } = state.selections;
+    const hasAnyChip = !!(style || mood || color || background);
+    const hasPrompt  = !!state.freeText.trim();
+    ok = hasAnyChip || hasPrompt;
+  }
   nextBtn.disabled = !ok;
 }
 
@@ -997,9 +1020,15 @@ $$('.chip-row').forEach(row => {
   row.addEventListener('click', e => {
     const chip = e.target.closest('.chip');
     if (!chip) return;
-    row.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
-    chip.classList.add('active');
-    state.selections[group] = chip.dataset.value;
+    // Toggle: clicking an already-active chip deselects it
+    if (chip.classList.contains('active')) {
+      chip.classList.remove('active');
+      state.selections[group] = null;
+    } else {
+      row.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      state.selections[group] = chip.dataset.value;
+    }
     updatePreview();
     validateNext();
   });
@@ -1008,6 +1037,7 @@ $$('.chip-row').forEach(row => {
 $('#freeText').addEventListener('input', e => {
   state.freeText = e.target.value;
   updatePreview();
+  validateNext();
 });
 
 function updatePreview() {
@@ -1293,6 +1323,8 @@ function resetAll() {
   state.freeText = '';
   state.signals = null;
   state.decision = null;
+  state.regenCount = 0;
+  state.hasGenerated = false;
   state.seed = null;
   state.lastPrompt = null;
   state.variations = [];
@@ -1488,6 +1520,12 @@ function renderOps() {
             <strong>${cohortApproval}%</strong>
           </div>
 
+          ${item.regenCount != null ? `
+          <div class="ops-regen-count">
+            <span>Regeneration attempts</span>
+            <strong>${item.regenCount}</strong>
+          </div>` : ''}
+
           <button class="ops-signals-toggle" data-toggle="${item.id}">View signal breakdown ▾</button>
           <div class="ops-signals-list" id="sig-${item.id}">
             ${signalRows}
@@ -1661,6 +1699,7 @@ function renderHistory() {
             <span>Risk ${item.risk}/100</span>
             <span>·</span>
             <span>${item.style || 'mixed'}</span>
+            ${item.regenCount != null ? `<span>·</span><span>Regens: ${item.regenCount}</span>` : ''}
           </div>
           ${reasonRow}
         </div>
@@ -1926,33 +1965,16 @@ function submitToOps(selectedVariation, cardholderName) {
     signals: { ...state.signals },
     imageUrl,
     orientation: orient,
+    regenCount: state.regenCount,
     decision: state.decision,
     isUserSubmission: true,
   };
 
   pushToOpsQueue(submission);
 
-  // Success modal — let user jump straight to ops dashboard
-  openModal({
-    title: '✓ Submitted for review',
-    subtitle: `Tracking ID: ${id}`,
-    body: `
-      <p>Your card design has been queued for ops review. The bank's compliance team will approve or reject it shortly.</p>
-      <p>You can track its status in the Ops Dashboard.</p>
-    `,
-    actions: [
-      { label: 'Start a new design', variant: 'ghost', handler: () => { resetAll(); } },
-      {
-        label: 'Open Ops Dashboard →',
-        variant: 'primary',
-        handler: () => {
-          resetAll();
-          // Programmatically click the ops tab
-          document.querySelector('.tab[data-view="ops"]').click();
-        },
-      },
-    ],
-  });
+  // Auto-navigate back to the starting page after successful submission
+  showToast('ok', `Submitted for review · Tracking ID: ${id}`);
+  resetAll();
 }
 
 function buildFlagsFromSignals(s) {
@@ -2028,6 +2050,20 @@ function openRejectModal(id) {
       ta.focus();
     });
   });
+}
+
+// ============================================================
+// Regeneration counter (customer UI)
+// ============================================================
+function updateRegenCounter() {
+  const el = $('#regenCounter');
+  if (!el) return;
+  if (state.regenCount > 0) {
+    el.textContent = `${state.regenCount} regeneration${state.regenCount > 1 ? 's' : ''}`;
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
 }
 
 // ============================================================
