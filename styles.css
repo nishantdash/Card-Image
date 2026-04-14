@@ -646,6 +646,15 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
 .variations-head h3 { font-size: 14px; margin-bottom: 2px; }
 .btn.ghost.small { padding: 6px 12px; font-size: 12px; }
 
+.regen-counter {
+  font-size: 11px;
+  color: #94a3b8;
+  background: rgba(148,163,184,0.10);
+  padding: 3px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
 .variations-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -935,6 +944,15 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   justify-content: space-between;
 }
 .ops-cohort strong { color: var(--text); font-weight: 600; }
+
+.ops-regen-count {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+}
+.ops-regen-count strong { color: var(--text); font-weight: 600; }
 
 .ops-signals-toggle {
   background: none;

@@ -158,7 +158,10 @@
                     <h3>Pick your card design</h3>
                     <p class="muted small">3 AI-generated variations · click to choose</p>
                   </div>
-                  <button class="btn ghost small" id="regenBtn">↻ Regenerate</button>
+                  <div style="display:flex;align-items:center;gap:8px;">
+                    <button class="btn ghost small" id="regenBtn">↻ Regenerate</button>
+                    <span class="regen-counter hidden" id="regenCounter"></span>
+                  </div>
                 </div>
                 <div class="variations-grid" id="variationsGrid"></div>
               </div>
