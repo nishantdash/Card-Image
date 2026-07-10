@@ -34,7 +34,14 @@
       "Bash(grep -c \"TODO\\\\|console\\\\.log\\\\|return null\" /Users/Nishant/Desktop/Vscode/Projects/Improvisation/src/**/*.jsx)",
       "Bash(find:*)",
       "Bash(npx vite:*)",
-      "Bash(head -20 postman/globals/*.json)"
+      "Bash(head -20 postman/globals/*.json)",
+      "Bash(npm run *)",
+      "Skill(run)",
+      "Bash(curl -s -o /tmp/poll_test.jpg -w \"HTTP %{http_code} · %{size_download} bytes · %{content_type}\\\\n\" \"https://image.pollinations.ai/prompt/luxury%20credit%20card%20artwork%20premium%20design?width=864&height=540&nologo=true&seed=42\" --max-time 45)",
+      "Bash(gh auth *)",
+      "Bash(vercel --version)",
+      "Bash(git add *)",
+      "Bash(git commit -q -m ' *)"
     ]
   }
 }

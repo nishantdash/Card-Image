@@ -1,6 +1,6 @@
 import { useCallback } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { PROVIDERS, buildFullPrompt, buildEditPrompt, callProvider, resizeImageDataURL } from './providers.js';
+import { PROVIDERS, buildFullPrompt, buildEditPrompt, callProvider, resizeImageDataURL, buildFallbackArt } from './providers.js';
 import { fetchBankCardTemplate, composeEmbosserReadyArtwork } from './bankTemplate.js';
 
 const VARIATION_COUNT = 3;
@@ -88,45 +88,41 @@ export function useGeneration() {
 
     setAiLoading(false);
 
-    if (successes.length === 0) {
-      setErrorBanner(
-        `✕ ${providerLabel} failed to generate any variations.\n\n` +
-        failures.map((f, i) => `[${i + 1}] ${f.error}`).join('\n\n') +
-        '\n\nOpen Ops Dashboard → re-test the connection.',
-      );
-      return;
-    }
-
-    if (failures.length > 0) {
-      setErrorBanner(
-        `⚠ ${failures.length} of ${VARIATION_COUNT} variations failed.\n` +
-        failures.map(f => f.error).join('\n'),
-      );
-    }
-
-    const built = results.map((r) => {
-      if (r && r.src) {
-        return {
-          src: r.src,
-          cache: {
-            horizontal: orientation === 'horizontal' ? r.src : null,
-            vertical:   orientation === 'vertical'   ? r.src : null,
-          },
-        };
+    // Demo-safe fallback: never leave the customer with an empty/failed card.
+    // Any variation that failed is replaced with on-brand offline artwork so the
+    // journey always continues. Real errors are still logged to the console.
+    const built = results.map((r, i) => {
+      let src = r && r.src ? r.src : null;
+      if (!src) {
+        const fb = buildFallbackArt(selections, orientation, (seedRef.current || 1) + i);
+        src = fb.src;
       }
-      return { failed: true, error: r?.error };
+      return {
+        src,
+        cache: {
+          horizontal: orientation === 'horizontal' ? src : null,
+          vertical:   orientation === 'vertical'   ? src : null,
+        },
+      };
     });
     setVariations(built);
-    const firstOK = built.findIndex(v => v.src);
-    setSelectedVariation(firstOK < 0 ? 0 : firstOK);
+    setSelectedVariation(0);
+
+    if (successes.length === 0) {
+      setErrorBanner('');
+      showToast('warn', `${providerLabel} is unreachable right now — showing sample artwork so you can keep going.`);
+    } else if (failures.length > 0) {
+      setErrorBanner('');
+      showToast('warn', `${successes.length} of ${VARIATION_COUNT} designs generated — the rest use sample artwork.`);
+    }
 
     // backend-only embosser compositing (fire and forget)
-    if (firstOK >= 0) prepareEmbosserOutput(built[firstOK]);
+    if (built[0]) prepareEmbosserOutput(built[0]);
   }, [
     source, uploaded, selections, freeText, cardOrientation, settings,
     hasGeneratedRef, seedRef,
     setAiLoading, setAiLoadingText, setErrorBanner, setLastPrompt,
-    setRegenCount, setVariations, setSelectedVariation,
+    setRegenCount, setVariations, setSelectedVariation, showToast,
   ]);
 
   const ensureOrientation = useCallback(async (variations, index, orient, setVariationsFn) => {

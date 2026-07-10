@@ -1022,9 +1022,11 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
 }
 .toast.ok   { border-color: var(--green); }
 .toast.fail { border-color: var(--red); }
+.toast.warn { border-color: var(--amber); }
 .toast .ic { font-size: 16px; }
 .toast.ok .ic   { color: var(--green); }
 .toast.fail .ic { color: var(--red); }
+.toast.warn .ic { color: var(--amber); }
 @keyframes toastIn {
   from { opacity: 0; transform: translate(-50%, 20px); }
   to   { opacity: 1; transform: translate(-50%, 0); }

@@ -112,6 +112,10 @@ export function resizeImageDataURL(dataURL, maxDim = 1024, quality = 0.9) {
   });
 }
 
+// Fail fast if a provider hangs — a frozen spinner mid-demo is worse than a
+// clean fallback. Kept generous so slow-but-alive services still succeed.
+const PROVIDER_TIMEOUT_MS = 25000;
+
 async function generatePollinations(prompt, orientation, seedRef) {
   const safe = prompt.replace(/[^\w ,.\-]/g, '').slice(0, 380);
   const seed = seedRef.current || Math.floor(Math.random() * 100000);
@@ -120,11 +124,60 @@ async function generatePollinations(prompt, orientation, seedRef) {
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(safe)}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
   await new Promise((res, rej) => {
     const img = new Image();
-    img.onload = res;
-    img.onerror = () => rej(new Error('Pollinations request failed'));
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      img.src = '';
+      rej(new Error(`Pollinations timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`));
+    }, PROVIDER_TIMEOUT_MS);
+    img.onload = () => { if (!done) { done = true; clearTimeout(timer); res(); } };
+    img.onerror = () => { if (!done) { done = true; clearTimeout(timer); rej(new Error('Pollinations request failed')); } };
     img.src = url;
   });
   return { src: url };
+}
+
+// ── Demo-safe local fallback ────────────────────────────────────────────────
+// Produces premium, on-brand card artwork entirely offline (SVG data URL).
+// Used as a safety net so a live demo never shows an empty/failed card even if
+// every network provider is unreachable. Deterministic per (palette, seed).
+const FALLBACK_PALETTES = {
+  warm:       { from: '#ff8a5c', to: '#5c1e0c', accent: '#ffd28a' },
+  cool:       { from: '#5b8cff', to: '#0d1c40', accent: '#7fe3ff' },
+  monochrome: { from: '#4a4a4c', to: '#0c0c0e', accent: '#c9c9cc' },
+  pastel:     { from: '#ffd1dc', to: '#4c5a86', accent: '#ffffff' },
+  neon:       { from: '#ff00d4', to: '#10032a', accent: '#00f0ff' },
+  _default:   { from: '#d4af37', to: '#17110a', accent: '#ffe9a8' },
+};
+
+export function buildFallbackArt(selections = {}, orientation = 'horizontal', seed = 1) {
+  const pal = FALLBACK_PALETTES[selections.color] || FALLBACK_PALETTES._default;
+  const [w, h] = orientation === 'vertical' ? [540, 864] : [864, 540];
+  const angle = (seed % 360);
+  const hx = (seed * 37) % 100;
+  const hy = (seed * 53) % 100;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <defs>
+      <linearGradient id="g" gradientTransform="rotate(${angle} 0.5 0.5)">
+        <stop offset="0" stop-color="${pal.from}"/>
+        <stop offset="1" stop-color="${pal.to}"/>
+      </linearGradient>
+      <radialGradient id="glow" cx="${hx}%" cy="${hy}%" r="70%">
+        <stop offset="0" stop-color="${pal.accent}" stop-opacity="0.55"/>
+        <stop offset="1" stop-color="${pal.accent}" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <rect width="${w}" height="${h}" fill="url(#g)"/>
+    <rect width="${w}" height="${h}" fill="url(#glow)"/>
+    <g stroke="${pal.accent}" stroke-opacity="0.22" fill="none">
+      <path d="M0 ${h * 0.72} Q ${w * 0.5} ${h * 0.55} ${w} ${h * 0.78}"/>
+      <path d="M0 ${h * 0.82} Q ${w * 0.5} ${h * 0.66} ${w} ${h * 0.88}"/>
+      <path d="M0 ${h * 0.62} Q ${w * 0.5} ${h * 0.45} ${w} ${h * 0.68}"/>
+    </g>
+    <rect width="${w}" height="${h}" fill="#000" fill-opacity="0.06"/>
+  </svg>`;
+  return { src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), fallback: true };
 }
 
 async function generateGemini(prompt, key, inputImage, orientation) {
