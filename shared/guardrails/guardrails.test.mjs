@@ -100,6 +100,29 @@ test('plurals and obfuscation no longer bypass the blocklist', () => {
   }
 });
 
+test('a single-letter word before a spaced-out term does not hide it', () => {
+  // Regression: "a g u n" glued to "agun", where \bgun\b could no longer match,
+  // so the term slipped through. Only affected short terms, which use a
+  // whitespace-free separator class in the loose matcher and therefore depend on
+  // the folded variant.
+  for (const v of [
+    'a g u n on the card', 'a b o m b', 'a s e x scene', 'the a s s design',
+    'I n u d e photo', 'a g u n s pair', 'x k k k banner', 'a p e d o image',
+  ]) {
+    assert.ok(scanText(v).riskScore > 0, `${v} should be detected`);
+  }
+});
+
+test('spaced initials and abbreviations stay clean', () => {
+  // The fix must not turn every spaced-letter sequence into a hit.
+  for (const v of [
+    'R K NARAYAN', 'a b c d e initials', 'a s a p delivery', 'I am a big fan',
+    'J R R Tolkien style', 'a e i o u',
+  ]) {
+    assert.equal(scanText(v).riskScore, 0, `${v} -> ${JSON.stringify(scanText(v).categories)}`);
+  }
+});
+
 test('ordinary words are not false positives', () => {
   for (const v of [
     'a classy minimal design', 'begun at sunrise', 'brass bass guitar',

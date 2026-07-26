@@ -205,7 +205,14 @@ export default async function handler(req, res) {
     });
   }
 
-  let body = req.body;
+  let body;
+  // `req.body` is a lazy getter on Vercel and throws on a malformed payload, so
+  // reading it must be guarded or a client error surfaces as a 500.
+  try {
+    body = req.body;
+  } catch {
+    return res.status(400).json({ error: 'Invalid JSON body' });
+  }
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch { return res.status(400).json({ error: 'Invalid JSON body' }); }
   }

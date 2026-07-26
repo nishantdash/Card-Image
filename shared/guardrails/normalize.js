@@ -96,7 +96,7 @@ export function fold(raw) {
  * restriction is deliberate: a blanket remove-all-whitespace pass would turn
  * "from" into a match for a 2-letter term like "om".
  */
-export function deIntersperse(raw) {
+export function deIntersperse(raw, { dropLeading = false } = {}) {
   let s = stripAccentsAndCase(raw).replace(LEET_RE, c => LEET[c] ?? c);
   // The leading \b matters: without it "with g u n" starts the run at the "h" of
   // "with" and yields "hgun" instead of "gun".
@@ -104,15 +104,37 @@ export function deIntersperse(raw) {
     '\\b(?:[a-z0-9][' + SEP_CHARS + ']+){2,}[a-z0-9](?![a-z0-9])',
     'g',
   );
-  s = s.replace(run, m => m.replace(new RegExp('[' + SEP_CHARS + ']+', 'g'), ''));
+  const strip = new RegExp('[' + SEP_CHARS + ']+', 'g');
+
+  s = s.replace(run, (m) => {
+    const glued = m.replace(strip, '');
+    if (!dropLeading || glued.length < 3) return glued;
+    // A spaced run has two readings, and a preceding single-letter word decides
+    // which: "a g u n" is "a"+"gun", not "agun". Gluing everything hid the term
+    // inside a longer word where \b could no longer see it. This variant keeps
+    // the first character as its own word so the rest is matchable.
+    return `${glued[0]} ${glued.slice(1)}`;
+  });
   return toWords(s);
 }
 
-/** The folded representations a term is tested against. */
+/**
+ * The folded representations a term is tested against.
+ *
+ * Both readings of a de-interspersed run are included; a term is a hit if it
+ * appears in any variant.
+ */
 export function foldVariants(raw) {
-  const a = fold(raw);
-  const b = deIntersperse(raw);
-  return b === a ? [a] : [a, b];
+  const seen = new Set();
+  const out = [];
+  for (const v of [
+    fold(raw),
+    deIntersperse(raw),
+    deIntersperse(raw, { dropLeading: true }),
+  ]) {
+    if (v && !seen.has(v)) { seen.add(v); out.push(v); }
+  }
+  return out;
 }
 
 /**

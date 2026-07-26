@@ -43,7 +43,15 @@ const clientKey = (req) => {
 };
 
 function parseBody(req) {
-  let body = req.body;
+  let body;
+  // On Vercel `req.body` is a lazy getter that THROWS on a malformed payload, so
+  // simply reading it can raise. Left unguarded that surfaced as a 500 for what
+  // is plainly a client error.
+  try {
+    body = req.body;
+  } catch {
+    return null;
+  }
   if (typeof body === 'string') {
     try { body = JSON.parse(body); } catch { return null; }
   }
@@ -67,6 +75,10 @@ export default async function handler(req, res) {
     res.setHeader('Allow', 'GET, POST, PATCH');
     return res.status(405).json({ error: 'Method not allowed' });
   } catch (err) {
+    // A body that cannot be parsed is a 400, not a server fault.
+    if (err instanceof SyntaxError || /invalid json/i.test(err.message || '')) {
+      return res.status(400).json({ error: 'Invalid JSON body' });
+    }
     console.error('[submissions]', err);
     return res.status(500).json({ error: err.message, storage: storageMode() });
   }
