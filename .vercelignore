@@ -1,0 +1,13 @@
+# Vercel turns every file under api/ into a serverless function. Test files must
+# not be deployed as endpoints, so they are excluded from the upload.
+*.test.mjs
+
+# Never upload local env files; server config lives in Vercel's env vars.
+.env
+.env.local
+
+# Local-only artifacts.
+legacy/
+postman/
+.postman/
+change_tracker.csv

@@ -70,7 +70,16 @@
       "Bash(command -v vercel)",
       "Bash(vercel env *)",
       "Bash(git fetch *)",
-      "Bash(vercel project *)"
+      "Bash(vercel project *)",
+      "Bash(git commit *)",
+      "Bash(curl -s -o /dev/null -w \"  homepage: HTTP %{http_code}\\\\n\" --max-time 20 https://card-image-nishant-dash.vercel.app/)",
+      "Bash(curl -s -o /dev/null -w \"  /api/generate: HTTP %{http_code} \\(404 = old build, no api yet\\)\\\\n\" --max-time 20 -X POST -H 'Content-Type: application/json' -d '{}' https://card-image-nishant-dash.vercel.app/api/generate)",
+      "Bash(gh api *)",
+      "Bash(vercel git *)",
+      "Bash(vercel ls *)",
+      "Bash(vercel logs *)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -H 'Authorization: Bearer __TRACKED_VAR__' https://api.vercel.com/v13/deployments/__TRACKED_VAR__)"
     ]
   }
 }
