@@ -85,7 +85,10 @@
       "Bash(git mv *)",
       "Bash(curl -s --max-time 25 https://card-image-nishant-dash.vercel.app/api/submissions)",
       "Bash(curl -s --max-time 20 -X POST https://card-image-nishant-dash.vercel.app/api/submissions -H 'Content-Type: application/json' -d '{oops' -w '\\\\n  HTTP %{http_code}\\\\n')",
-      "Bash(awk '{print \"  deployed:\", $3, $4, $5}')"
+      "Bash(awk '{print \"  deployed:\", $3, $4, $5}')",
+      "Bash(awk '{print \"  \", $5, $6, \"·\", $3}')",
+      "Bash(curl -s -o /dev/null --max-time 20 -w \"  homepage: HTTP %{http_code}\\\\n\" https://card-image-nishant-dash.vercel.app/)",
+      "Bash(curl -s -o /dev/null --max-time 20 -X POST https://card-image-nishant-dash.vercel.app/api/generate -H 'Content-Type: application/json' -d '{\"cardholderName\":\"Motherfucker\"}' -w '  guardrail: HTTP %{http_code}\\\\n')"
     ]
   }
 }

@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 
 // Mounts the api/ serverless handlers on the dev server.
@@ -62,7 +62,23 @@ function apiDevServer() {
   };
 }
 
-export default defineConfig({
-  plugins: [react(), apiDevServer()],
-  server: { port: 5173 },
+export default defineConfig(({ mode }) => {
+  // Vite only exposes VITE_-prefixed vars, and only to the client. The api/
+  // handlers run in Node and read process.env, so a plain GEMINI_API_KEY in .env
+  // would never reach them during `npm run dev` — generation would report itself
+  // unconfigured locally even with a key sitting right there in the file.
+  //
+  // An empty prefix loads every key. Real process env wins, so `KEY=... npm run
+  // dev` still overrides the file.
+  const fileEnv = loadEnv(mode, process.cwd(), '');
+  for (const [key, value] of Object.entries(fileEnv)) {
+    if (!key.startsWith('VITE_') && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+
+  return {
+    plugins: [react(), apiDevServer()],
+    server: { port: 5173 },
+  };
 });
