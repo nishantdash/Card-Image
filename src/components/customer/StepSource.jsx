@@ -11,21 +11,29 @@ export default function StepSource() {
     if (src === 'generate') setStep(2);
   };
 
+  // Upload feedback is structured data, not an HTML string. The previous version
+  // interpolated file.name into markup that was rendered with
+  // dangerouslySetInnerHTML, so a file named `<img src=x onerror=...>.png`
+  // executed script.
   const handleFile = (file) => {
-    if (!/image\/(jpeg|png)/.test(file.type)) {
-      setUploadMeta({ tone: 'red', html: '<strong style="color:var(--red)">That file won\'t work.</strong> Please use a JPG or PNG photo.' });
+    if (!/^image\/(jpeg|png)$/.test(file.type)) {
+      setUploadMeta({ tone: 'red', title: "That file won't work.", detail: 'Please use a JPG or PNG photo.' });
       return;
     }
     if (file.size > 15 * 1024 * 1024) {
-      setUploadMeta({ tone: 'red', html: '<strong style="color:var(--red)">File too big.</strong> Please pick a photo under 15&nbsp;MB.' });
+      setUploadMeta({ tone: 'red', title: 'File too big.', detail: 'Please pick a photo under 15 MB.' });
       return;
     }
     const reader = new FileReader();
+    reader.onerror = () => {
+      setUploadMeta({ tone: 'red', title: "That file couldn't be read.", detail: 'Please try another photo.' });
+    };
     reader.onload = (e) => {
       setUploaded({ name: file.name, size: file.size, dataURL: e.target.result });
       setUploadMeta({
         tone: 'green',
-        html: `<strong style="color:var(--green)">✓ Looks good.</strong> ${file.name} · ${(file.size/1024).toFixed(0)} KB`,
+        title: '✓ Looks good.',
+        detail: `${file.name} · ${(file.size / 1024).toFixed(0)} KB`,
       });
     };
     reader.readAsDataURL(file);
@@ -75,7 +83,12 @@ export default function StepSource() {
           <span className="muted">JPG or PNG · up to 15 MB</span>
         </div>
         {uploadMeta && (
-          <div className="upload-meta" dangerouslySetInnerHTML={{ __html: uploadMeta.html }} />
+          <div className="upload-meta">
+            <strong className={uploadMeta.tone === 'red' ? 'meta-bad' : 'meta-ok'}>
+              {uploadMeta.title}
+            </strong>{' '}
+            {uploadMeta.detail}
+          </div>
         )}
       </div>
     </>

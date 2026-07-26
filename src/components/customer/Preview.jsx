@@ -1,6 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
-import { PROVIDERS, buildPreviewPrompt } from '../../lib/providers.js';
+import { PROVIDERS, IS_SERVER_ENFORCED } from '../../lib/providers.js';
+import { buildPreviewPrompt } from '../../../shared/prompt.js';
+import {
+  validateCardholderName, firstNameError, redactText, NAME_MAX,
+} from '../../../shared/guardrails/index.js';
 import { useGeneration } from '../../lib/useGeneration.js';
 
 export default function Preview() {
@@ -13,10 +17,23 @@ export default function Preview() {
   const { ensureOrientation } = useGeneration();
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  const promptPreview = buildPreviewPrompt(selections, freeText) || 'Pick a style to begin…';
-  const provDef = PROVIDERS[settings.provider];
-  const hasKey = !provDef.needsKey || !!settings.keys[settings.provider];
-  const providerText = provDef.label + (hasKey ? ' ✓' : ' (key missing)');
+  // Preview the prompt as it will actually be sent — redacted. Echoing the raw
+  // text back would display terms the guardrails just stripped.
+  const promptPreview = useMemo(() => {
+    const safe = redactText(freeText).text;
+    return buildPreviewPrompt(selections, safe) || 'Pick a style to begin…';
+  }, [selections, freeText]);
+
+  const nameCheck = useMemo(() => validateCardholderName(cardholderName), [cardholderName]);
+  const nameError = firstNameError(nameCheck);
+  const nameBlocked = nameCheck.severity === 'block';
+  const nameNeedsReview = nameCheck.severity === 'review' && !nameCheck.empty;
+
+  const provDef = PROVIDERS[settings.provider] || PROVIDERS.server;
+  const providerText = IS_SERVER_ENFORCED
+    ? 'Server-enforced · Google Gemini'
+    : provDef.label + (!provDef.needsKey || settings.keys?.[settings.provider] ? ' ✓' : ' (key missing)');
+  const hasKey = IS_SERVER_ENFORCED || !provDef.needsKey || !!settings.keys?.[settings.provider];
 
   const pickedVariation = variations?.[selectedVariation];
   let cardImage = '';
@@ -31,7 +48,11 @@ export default function Preview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardOrientation]);
 
-  const displayName = cardholderName?.trim() ? cardholderName.trim().toUpperCase() : 'YOUR NAME';
+  // Never echo a blocked name onto the card mock — that renders the very content
+  // the guardrail just refused.
+  const displayName = nameCheck.empty || nameBlocked
+    ? 'YOUR NAME'
+    : nameCheck.normalized;
   const hasSelections = !!(selections.style || selections.mood || selections.color || selections.background);
 
   return (
@@ -94,11 +115,23 @@ export default function Preview() {
           id="cardNameInput"
           type="text"
           placeholder="Tap to enter your name"
-          maxLength={22}
+          maxLength={NAME_MAX}
           autoComplete="off"
           value={cardholderName}
           onChange={(e) => setCardholderName(e.target.value)}
+          aria-invalid={nameBlocked || undefined}
+          aria-describedby={nameError ? 'cardNameHelp' : undefined}
+          className={nameBlocked ? 'invalid' : nameNeedsReview ? 'warn' : ''}
         />
+        {nameError && !nameCheck.empty && (
+          <p
+            id="cardNameHelp"
+            className={`name-help ${nameBlocked ? 'bad' : 'warn'}`}
+            role={nameBlocked ? 'alert' : undefined}
+          >
+            {nameError}
+          </p>
+        )}
       </div>
 
       {errorBanner && (

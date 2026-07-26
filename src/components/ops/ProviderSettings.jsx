@@ -1,44 +1,64 @@
 import { useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
-import { PROVIDERS, callProvider } from '../../lib/providers.js';
+import { PROVIDERS, IS_SERVER_ENFORCED, requestGeneration } from '../../lib/providers.js';
 
 export default function ProviderSettings() {
   const { settings, updateSettings } = useApp();
   const [keyVisible, setKeyVisible] = useState(false);
   const [result, setResult] = useState(null); // { tone, msg }
-  const [keyDraft, setKeyDraft] = useState(settings.keys[settings.provider] || '');
+  const [keyDraft, setKeyDraft] = useState(settings.keys?.[settings.provider] || '');
   const [testing, setTesting] = useState(false);
 
-  const def = PROVIDERS[settings.provider];
-  const needsKey = def.needsKey;
-  const hasKey = !!settings.keys[settings.provider];
+  const def = PROVIDERS[settings.provider] || PROVIDERS.server;
+  // In server-enforced mode the browser holds no key, so there is nothing to
+  // configure here.
+  const needsKey = !IS_SERVER_ENFORCED && def.needsKey;
+  const hasKey = !!settings.keys?.[settings.provider];
 
-  const statusClass = !needsKey || hasKey ? 'ok' : 'warn';
-  const statusText = !needsKey
-    ? `${def.label} · ready`
-    : hasKey
-      ? `${def.label} · key configured`
-      : `${def.label} · key required`;
+  const statusClass = IS_SERVER_ENFORCED || !needsKey || hasKey ? 'ok' : 'warn';
+  const statusText = IS_SERVER_ENFORCED
+    ? 'Server-enforced · key held in GEMINI_API_KEY'
+    : !needsKey
+      ? `${def.label} · ready`
+      : hasKey ? `${def.label} · key configured` : `${def.label} · key required`;
 
   const changeProvider = (provider) => {
     updateSettings({ ...settings, provider });
-    setKeyDraft(settings.keys[provider] || '');
+    setKeyDraft(settings.keys?.[provider] || '');
   };
 
   const save = () => {
-    const next = { ...settings, keys: { ...settings.keys, [settings.provider]: keyDraft.trim() } };
-    updateSettings(next);
+    updateSettings({
+      ...settings,
+      keys: { ...settings.keys, [settings.provider]: keyDraft.trim() },
+    });
     setResult({ tone: 'ok', msg: `Saved · ${def.label} is now active.` });
   };
 
   const test = async () => {
-    const next = { ...settings, keys: { ...settings.keys, [settings.provider]: keyDraft.trim() } };
-    updateSettings(next);
     setTesting(true);
     setResult({ tone: '', msg: 'Sending test prompt…' });
     try {
-      const { src } = await callProvider(next, 'a minimal abstract gradient, blue and purple, test image', null, 'horizontal', { current: null });
-      setResult({ tone: 'ok', msg: `✓ Connection OK · received image (${src.slice(0, 60)}…)` });
+      const out = await requestGeneration({
+        settings,
+        selections: { style: 'minimal', mood: 'calm', color: 'cool', background: 'abstract' },
+        freeText: '',
+        cardholderName: 'TEST CARD',
+        orientation: 'horizontal',
+        inputImage: null,
+        variations: 1,
+      });
+      if (out.refused) {
+        setResult({ tone: 'fail', msg: `✕ Guardrails refused the test: ${out.verdict?.decision?.reason}` });
+      } else if (out.images.length) {
+        setResult({
+          tone: 'ok',
+          msg: `✓ Connection OK · image received · enforced by ${out.enforcedBy}` +
+               ` · decision ${out.verdict?.decision?.code}`,
+        });
+      } else {
+        setResult({ tone: 'fail', msg: `✕ No image returned. ${out.verdict?.error || ''}` });
+      }
     } catch (err) {
       setResult({ tone: 'fail', msg: `✕ ${err.message}` });
     } finally {
@@ -51,7 +71,11 @@ export default function ProviderSettings() {
       <div className="settings-head">
         <div>
           <h2>AI Image Provider</h2>
-          <p className="muted small">Choose which model generates customer card artwork. Settings persist locally.</p>
+          <p className="muted small">
+            {IS_SERVER_ENFORCED
+              ? 'Generation runs through /api/generate, which applies the guardrails and holds the provider key.'
+              : 'Local direct mode — the browser calls the provider itself. Development only.'}
+          </p>
         </div>
         <div className={`settings-status ${statusClass}`}>
           <span className="dot"></span><span>{statusText}</span>
@@ -61,13 +85,26 @@ export default function ProviderSettings() {
       <div className="settings-grid">
         <div className="settings-field">
           <label>Provider</label>
-          <select value={settings.provider} onChange={(e) => changeProvider(e.target.value)}>
-            <option value="pollinations">Pollinations.ai (free, no key)</option>
-            <option value="gemini">Google Gemini · Nano Banana (gemini-2.5-flash-image)</option>
-            <option value="dalle">OpenAI DALL·E 3</option>
-            <option value="grok">xAI Grok Image (grok-2-image)</option>
-            <option value="stability">Stability AI (Stable Diffusion 3)</option>
+          <select
+            value={settings.provider}
+            onChange={(e) => changeProvider(e.target.value)}
+            disabled={IS_SERVER_ENFORCED}
+          >
+            {IS_SERVER_ENFORCED ? (
+              <option value="server">Server-enforced · Google Gemini</option>
+            ) : (
+              <>
+                <option value="pollinations">Pollinations.ai (free, no key)</option>
+                <option value="gemini">Google Gemini · Nano Banana (gemini-2.5-flash-image)</option>
+              </>
+            )}
           </select>
+          {IS_SERVER_ENFORCED && (
+            <p className="muted small">
+              Set on the server. Change it with the <code>GEMINI_API_KEY</code> environment
+              variable in the Vercel project settings.
+            </p>
+          )}
         </div>
 
         {needsKey && (
@@ -90,12 +127,26 @@ export default function ProviderSettings() {
           <button className="btn ghost" onClick={test} disabled={testing}>
             {testing ? 'Testing…' : 'Test Connection'}
           </button>
-          <button className="btn primary" onClick={save}>Save Settings</button>
+          {needsKey && <button className="btn primary" onClick={save}>Save Settings</button>}
         </div>
       </div>
 
       <div className="settings-warning">
-        <strong>⚠ Security note:</strong> API keys entered here are stored in <code>localStorage</code> and called directly from the browser. This is fine for sandbox/demo use, but in production keys must live behind a server-side proxy — never ship them to the client.
+        {IS_SERVER_ENFORCED ? (
+          <>
+            <strong>✓ Keys are server-side.</strong> The provider key lives in the
+            serverless function's environment and is never sent to the browser.
+            Guardrails are re-evaluated on the server for every request, so a
+            tampered client cannot skip them.
+          </>
+        ) : (
+          <>
+            <strong>⚠ Direct mode.</strong> Keys entered here are stored in{' '}
+            <code>localStorage</code> and called straight from the browser, and the
+            guardrail decision is made client-side where it can be bypassed. Local
+            development only — never deploy in this mode.
+          </>
+        )}
       </div>
 
       {result && (

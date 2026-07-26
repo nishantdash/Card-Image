@@ -1,0 +1,308 @@
+// Authoritative generation endpoint.
+//
+// This is the only place that may talk to an image provider. It exists because
+// the guardrails used to run exclusively in the browser, which made them a
+// suggestion: the prompt went straight from the customer's device to the
+// provider with a VITE_-inlined key, so there was no point in the path where a
+// policy could actually be enforced.
+//
+// Rules for this file:
+//   * The client's guardrail verdict is never trusted. Every decision is
+//     recomputed here from the raw inputs.
+//   * A hard block returns 422 and never calls the image provider.
+//   * Style selections are validated against a closed vocabulary rather than
+//     concatenated into the prompt as-is.
+//   * The provider key lives in a server-only env var and is never returned.
+//
+// Moderation runs in three passes, cheapest first:
+//   A. deterministic blocklists — free, instant, stops the obvious
+//   B. model classification of the prompt, name and uploaded photo
+//   C. model classification of the GENERATED images
+//
+// Pass C matters: a clean prompt can still produce unsafe output, and before it
+// existed nothing ever looked at what the provider actually returned.
+
+import { evaluateSubmission, mergeModelVerdicts } from '../shared/guardrails/index.js';
+import {
+  buildFullPrompt, buildEditPrompt, buildStyleText,
+  sanitizeSelections, sanitizeOrientation,
+} from '../shared/prompt.js';
+import {
+  moderationConfig, moderateText, moderateImage, moderateImages,
+} from './_moderation.js';
+
+const MAX_VARIATIONS = 4;
+const MAX_FREETEXT = 500;
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024; // base64-decoded
+const PROVIDER_TIMEOUT_MS = 25000;
+
+// ── Rate limiting ──────────────────────────────────────────────────────────
+// Best-effort only: serverless instances are per-region and recycled, so this
+// caps casual abuse but is not a real quota. A durable store (Vercel KV, Redis)
+// is required for an actual limit — flagged rather than silently pretended.
+const RATE_LIMIT = { windowMs: 60_000, max: 12 };
+const hits = new Map();
+
+function rateLimited(key) {
+  const now = Date.now();
+  const recent = (hits.get(key) || []).filter(t => now - t < RATE_LIMIT.windowMs);
+  recent.push(now);
+  hits.set(key, recent);
+  if (hits.size > 5000) hits.clear(); // crude memory bound
+  return recent.length > RATE_LIMIT.max;
+}
+
+function clientKey(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  return (Array.isArray(fwd) ? fwd[0] : fwd || '').split(',')[0].trim() || 'unknown';
+}
+
+// ── Provider ───────────────────────────────────────────────────────────────
+const GEMINI_IMAGE_MODELS = [
+  'gemini-2.5-flash-image',
+  'gemini-3.1-flash-image-preview',
+  'gemini-2.5-flash-image-preview',
+];
+
+async function generateGemini({ prompt, key, inputImage, orientation }) {
+  const parts = [];
+  if (inputImage) {
+    parts.push({ inlineData: { mimeType: inputImage.mimeType, data: inputImage.base64 } });
+  }
+  parts.push({ text: prompt });
+
+  const body = {
+    contents: [{ parts }],
+    generationConfig: {
+      responseModalities: ['TEXT', 'IMAGE'],
+      imageConfig: { aspectRatio: orientation === 'vertical' ? '9:16' : '16:9' },
+    },
+  };
+
+  let lastErr;
+  for (const model of GEMINI_IMAGE_MODELS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          // Key travels in a header, not the query string, so it stays out of
+          // request logs and referrers.
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        },
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        lastErr = new Error(`${model} -> ${res.status}: ${errText.slice(0, 200)}`);
+        if (res.status === 404 || res.status === 400) continue;
+        throw lastErr;
+      }
+      const data = await res.json();
+      const respParts = data?.candidates?.[0]?.content?.parts || [];
+      const imgPart = respParts.find(p => p.inlineData || p.inline_data);
+      if (!imgPart) {
+        lastErr = new Error(
+          `${model} returned no image (finishReason=${data?.candidates?.[0]?.finishReason || 'n/a'})`,
+        );
+        continue;
+      }
+      const inline = imgPart.inlineData || imgPart.inline_data;
+      return { src: `data:${inline.mimeType || inline.mime_type};base64,${inline.data}`, model };
+    } catch (err) {
+      lastErr = err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw lastErr || new Error('All Gemini image model variants failed');
+}
+
+// ── Response shaping ───────────────────────────────────────────────────────
+function publicVerdict(verdict, cfg, extra = {}) {
+  return {
+    decision: verdict.decision,
+    riskScore: verdict.riskScore,
+    safetyScore: verdict.safetyScore,
+    components: verdict.components,
+    unevaluated: verdict.unevaluated,
+    coverage: verdict.coverage,
+    notes: verdict.notes,
+    hardBlocked: verdict.hardBlocked,
+    blockedCategories: verdict.blockedCategories,
+    promptCategories: verdict.prompt.categories,
+    obfuscationDetected: verdict.prompt.obfuscationDetected,
+    name: {
+      severity: verdict.name.severity,
+      normalized: verdict.name.normalized,
+      reasons: verdict.name.reasons,
+    },
+    moderation: {
+      provider: cfg.provider,
+      configured: cfg.configured,
+      available: verdict.moderationAvailable,
+      // Category scores are useful in the ops audit trail; the model's free-text
+      // reasoning is not returned to the browser.
+      scores: verdict.model?.scores ?? null,
+      blocked: verdict.model?.blocked ?? [],
+      review: verdict.model?.review ?? [],
+    },
+    enforcedBy: 'server',
+    ...extra,
+  };
+}
+
+// ── Handler ────────────────────────────────────────────────────────────────
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  if (rateLimited(clientKey(req))) {
+    return res.status(429).json({
+      error: 'Too many generation requests. Please wait a minute and try again.',
+    });
+  }
+
+  let body = req.body;
+  if (typeof body === 'string') {
+    try { body = JSON.parse(body); } catch { return res.status(400).json({ error: 'Invalid JSON body' }); }
+  }
+  if (!body || typeof body !== 'object') {
+    return res.status(400).json({ error: 'Missing request body' });
+  }
+
+  // ── Input validation ─────────────────────────────────────────────────────
+  const selections = sanitizeSelections(body.selections);
+  const orientation = sanitizeOrientation(body.orientation);
+  const freeText = String(body.freeText ?? '').slice(0, MAX_FREETEXT);
+  const cardholderName = String(body.cardholderName ?? '').slice(0, 64);
+  const variations = Math.min(Math.max(parseInt(body.variations, 10) || 1, 1), MAX_VARIATIONS);
+
+  let inputImage = null;
+  if (body.inputImage && typeof body.inputImage === 'object') {
+    const { mimeType, base64 } = body.inputImage;
+    if (typeof base64 !== 'string' || !/^image\/(jpeg|png|webp)$/.test(String(mimeType))) {
+      return res.status(400).json({ error: 'Unsupported image payload' });
+    }
+    // base64 expands by 4/3; check the decoded size.
+    if (base64.length * 0.75 > MAX_IMAGE_BYTES) {
+      return res.status(413).json({ error: 'Uploaded image is too large' });
+    }
+    inputImage = { mimeType, base64 };
+  }
+
+  const hasUpload = !!inputImage;
+  const styleText = buildStyleText(selections);
+  const cfg = moderationConfig();
+  const base = { freeText, styleText, cardholderName, hasUpload };
+
+  // ── Pass A · deterministic blocklists ────────────────────────────────────
+  // Free and instant. Refusing here avoids paying for a classifier call on
+  // input that is already disqualified.
+  const deterministic = evaluateSubmission(base);
+  if (!deterministic.allowGeneration) {
+    return res.status(422).json({
+      ...publicVerdict(deterministic, cfg, { stoppedAt: 'blocklist' }),
+      error: deterministic.decision.reason,
+      images: [],
+    });
+  }
+
+  // ── Pass B · model classification of the inputs ──────────────────────────
+  const [promptVerdict, nameVerdict, uploadVerdict] = await Promise.all([
+    moderateText([styleText, freeText].filter(Boolean).join('. '), cfg),
+    cardholderName.trim() ? moderateText(cardholderName, cfg) : Promise.resolve(null),
+    inputImage ? moderateImage(inputImage, cfg, 'upload') : Promise.resolve(null),
+  ]);
+
+  const inputModel = mergeModelVerdicts([promptVerdict, uploadVerdict].filter(Boolean));
+  const preGen = evaluateSubmission({ ...base, model: inputModel, nameModel: nameVerdict });
+
+  if (!preGen.allowGeneration) {
+    return res.status(422).json({
+      ...publicVerdict(preGen, cfg, { stoppedAt: 'input-moderation' }),
+      error: preGen.decision.reason,
+      images: [],
+    });
+  }
+
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) {
+    return res.status(503).json({
+      ...publicVerdict(preGen, cfg, { stoppedAt: 'configuration' }),
+      error: 'Image generation is not configured on the server (GEMINI_API_KEY missing).',
+      images: [],
+    });
+  }
+
+  // ── Generation, using only redacted text ─────────────────────────────────
+  const prompt = hasUpload
+    ? buildEditPrompt(selections, preGen.safeFreeText)
+    : buildFullPrompt(selections, preGen.safeFreeText);
+
+  const results = await Promise.all(
+    Array.from({ length: variations }, () =>
+      generateGemini({ prompt, key, inputImage, orientation })
+        .then(r => ({ ok: true, src: r.src }))
+        .catch(err => ({ ok: false, error: err.message })),
+    ),
+  );
+
+  const produced = results.filter(r => r.ok).map(r => r.src);
+  const errors = results.filter(r => !r.ok).map(r => r.error);
+
+  // ── Pass C · model classification of the OUTPUT ──────────────────────────
+  // A clean prompt does not guarantee clean output. Anything the classifier
+  // blocks is dropped before it is ever sent to the browser.
+  let outputVerdicts = [];
+  let images = produced;
+  let droppedImages = 0;
+
+  if (produced.length && cfg.configured && cfg.moderateOutputImages) {
+    outputVerdicts = await moderateImages(produced, cfg);
+    images = produced.filter((_, i) => {
+      const v = outputVerdicts[i];
+      // Unavailable (an outage) is not a block — it degrades the decision below
+      // instead of discarding artwork we simply failed to inspect.
+      return !(v?.available && v.blocked.length > 0);
+    });
+    droppedImages = produced.length - images.length;
+  }
+
+  const finalModel = mergeModelVerdicts(
+    [promptVerdict, uploadVerdict, ...outputVerdicts].filter(Boolean),
+  );
+  const finalVerdict = evaluateSubmission({
+    ...base, model: finalModel, nameModel: nameVerdict,
+  });
+
+  // Every generated image failed moderation: nothing safe to show.
+  if (produced.length > 0 && images.length === 0 && droppedImages > 0) {
+    return res.status(422).json({
+      ...publicVerdict(finalVerdict, cfg, { stoppedAt: 'output-moderation', droppedImages }),
+      decision: {
+        code: 'REJECTED', label: 'Rejected', tone: 'fail', icon: '✕',
+        reason: 'The generated artwork did not pass image moderation. Nothing was kept.',
+      },
+      hardBlocked: true,
+      error: 'Generated artwork failed image moderation.',
+      images: [],
+    });
+  }
+
+  return res.status(200).json({
+    ...publicVerdict(finalVerdict, cfg, { droppedImages }),
+    images,
+    requested: variations,
+    // The prompt actually sent, post-redaction — useful for the ops audit trail
+    // and safe to expose because every blocklist hit has been removed.
+    prompt,
+    redactions: finalVerdict.redaction.redactions.map(r => ({ category: r.category, kind: r.kind })),
+    errors: errors.length ? errors : undefined,
+  });
+}

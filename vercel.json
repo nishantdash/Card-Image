@@ -3,5 +3,6 @@
   "framework": "vite",
   "buildCommand": "vite build",
   "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/" }]
+  "_comment": "SPA fallback excludes /api/* — a catch-all /(.*) swallows the serverless routes.",
+  "rewrites": [{ "source": "/((?!api/).*)", "destination": "/" }]
 }

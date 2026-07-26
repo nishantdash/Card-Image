@@ -3,3 +3,7 @@ dist
 .DS_Store
 .vite
 *.log
+.vercel
+.env*
+# The template carries no secrets and documents the required server-side config.
+!.env.example

@@ -253,6 +253,9 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   border: 1px solid var(--line);
   font-size: 12.5px;
 }
+/* Tone is a class, not an inline style in an interpolated HTML string. */
+.upload-meta .meta-ok { color: var(--green); }
+.upload-meta .meta-bad { color: var(--red); }
 
 /* Pickers */
 .picker-block { margin-top: 22px; }
@@ -365,6 +368,14 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
 .layer-row[data-status="warn"] .lstatus::before { content: '!'; }
 .layer-row[data-status="fail"] .lstatus { background: rgba(239,68,68,.15); color: var(--red); }
 .layer-row[data-status="fail"] .lstatus::before { content: '✕'; }
+/* Distinct from pass: this check did not run. */
+.layer-row[data-status="skip"] { opacity: .7; }
+.layer-row[data-status="skip"] .lstatus {
+  background: var(--bg-elev);
+  color: var(--muted);
+  font-style: italic;
+}
+.layer-row[data-status="skip"] .lstatus::before { content: '–'; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
 /* Result */
@@ -430,13 +441,42 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
 .signal.ok .signal-val { color: var(--green); }
 .signal.warn .signal-val { color: var(--amber); }
 .signal.bad .signal-val { color: var(--red); }
+/* "Not evaluated" is deliberately neutral and de-emphasised — it must not read
+   as a pass. */
+.signal.unknown { border-style: dashed; }
+.signal.unknown .signal-val {
+  color: var(--muted);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.decision-notes {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.decision-notes li { margin-top: 3px; }
+
+.blocked-note {
+  text-align: center;
+  padding: 22px 16px;
+}
+.blocked-note h3 { font-size: 14px; margin-bottom: 6px; }
 
 /* Builder actions */
 .builder-actions {
   display: flex; justify-content: space-between;
+  /* wrap + gap so the hint line below the buttons gets its own row */
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
   margin-top: 28px; padding-top: 22px;
   border-top: 1px solid var(--line);
 }
+/* When Cancel is the only control (step 3), don't leave it stranded. */
+.builder-actions > .btn:only-of-type { margin-inline: auto; }
 .btn {
   padding: 11px 22px;
   border-radius: 10px;
@@ -629,6 +669,21 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   outline: none;
   border-color: var(--accent);
 }
+.name-input-block input.invalid { border-color: var(--red); }
+.name-input-block input.warn { border-color: var(--amber); }
+.name-help {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-transform: none;
+}
+.name-help.bad { color: var(--red); }
+.name-help.warn { color: var(--amber); }
+
+.block-hint {
+  flex-basis: 100%;
+  margin: 8px 0 0;
+}
 
 .variations-block {
   background: var(--bg-elev-2);
@@ -644,7 +699,11 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   margin-bottom: 14px;
 }
 .variations-head h3 { font-size: 14px; margin-bottom: 2px; }
-.btn.ghost.small { padding: 6px 12px; font-size: 12px; }
+/* Let the controls drop to their own row on narrow phone widths instead of
+   squeezing "Try again" onto two lines. */
+.variations-head { flex-wrap: wrap; }
+.variations-head > div:last-child { flex-shrink: 0; }
+.btn.ghost.small { padding: 6px 12px; font-size: 12px; white-space: nowrap; }
 
 .regen-counter {
   font-size: 11px;
@@ -953,6 +1012,13 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   justify-content: space-between;
 }
 .ops-regen-count strong { color: var(--text); font-weight: 600; }
+/* Orientation split is secondary to the total. */
+.ops-regen-count .iter-split {
+  color: var(--muted);
+  font-weight: 400;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10.5px;
+}
 
 .ops-signals-toggle {
   background: none;
@@ -1738,7 +1804,23 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   border-radius: 6px;
   margin-bottom: 12px;
 }
-.arch-layer h3 { margin-bottom: 8px; font-size: 16px; }
+/* Implementation status, so a planned layer cannot be read as a shipped one. */
+.arch-status {
+  float: right;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+.arch-status.live    { background: rgba(16,185,129,.14); color: var(--green); }
+.arch-status.partial { background: rgba(245,158,11,.14); color: var(--amber); }
+.arch-status.planned { background: var(--bg-elev-2); color: var(--muted); border-color: var(--line); }
+.arch-layer.arch-planned::before { background: var(--line); }
+.arch-layer.arch-planned { opacity: .82; }
+.arch-layer h3 { margin-bottom: 8px; font-size: 16px; clear: both; }
 .arch-layer p { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .arch-layer ul { list-style: none; }
 .arch-layer ul li {
@@ -2215,6 +2297,14 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   border-color: var(--red);
 }
 .fcheck-fail .fcheck-status { color: var(--red); }
+/* Not checked — neutral, so it cannot be mistaken for a pass. */
+.fcheck-skip { opacity: .75; }
+.fcheck-skip .fcheck-icon {
+  background: var(--bg-elev-2);
+  color: var(--muted);
+  border-style: dashed;
+}
+.fcheck-skip .fcheck-status { color: var(--muted); font-style: italic; }
 
 @keyframes spin { to { transform: rotate(360deg); } }
 

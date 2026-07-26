@@ -1,97 +1,233 @@
-import { sanitizePrompt } from './sanitize.js';
+import { evaluateSubmission } from '../../shared/guardrails/index.js';
+import { buildStyleText, buildPreviewPrompt } from '../../shared/prompt.js';
+import { measureUpload } from './imageChecks.js';
+
+// Moderation pipeline.
+//
+// Two important changes from the original:
+//
+//  * A layer now reports what it actually did. Layers that depend on detectors
+//    nobody has wired up report 'skip' ("Not evaluated") instead of 'pass'.
+//    The old version returned hardcoded values and Math.random() scores that
+//    always landed under every threshold, so the display said "Passed" for
+//    checks that had never run.
+//
+//  * The verdict this produces on the client is advisory — it exists to give the
+//    customer instant feedback. The binding decision comes from /api/generate.
+//    See src/lib/providers.js.
 
 export const LAYER_DEFS = [
-  { id: 'L0', name: 'Prompt Intelligence',    desc: 'Parse, sanitize and risk-score prompt' },
-  { id: 'L1', name: 'Upload Guardrails',      desc: 'File integrity, resolution & quality checks' },
-  { id: 'L2', name: 'Image Analysis',         desc: 'NSFW · faces · logos · OCR · CLIP concepts' },
-  { id: 'L3', name: 'Risk Scoring Engine',    desc: 'Weighted aggregation of all signals' },
-  { id: 'L4', name: 'Auto Approval',          desc: 'Routing decision based on cohort policy' },
-  { id: 'L5', name: 'Fraud Detection',        desc: 'Behavioral & perceptual hash checks' },
-  { id: 'L6', name: 'Continuous Learning',    desc: 'Decision feedback loop · retrain detectors over time' },
+  { id: 'L0', name: 'Prompt Intelligence', desc: 'Parse, redact and risk-score the design prompt' },
+  { id: 'L1', name: 'Cardholder Name',     desc: 'Profanity, charset and embosser-safety checks' },
+  { id: 'L2', name: 'Upload Guardrails',   desc: 'Real resolution, DPI and sharpness measurement' },
+  { id: 'L3', name: 'Image Analysis',      desc: 'Model moderation of the photo and generated artwork' },
+  { id: 'L4', name: 'Risk Scoring Engine', desc: 'Weighted aggregation over evaluated signals' },
+  { id: 'L5', name: 'Auto Approval',       desc: 'Server-enforced routing decision' },
+  { id: 'L6', name: 'Fraud Detection',     desc: 'Behavioural & perceptual-hash checks' },
+  { id: 'L7', name: 'Continuous Learning', desc: 'Decision feedback loop for detector retraining' },
 ];
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-function seedNoise() { return +(Math.random() * 6).toFixed(1); }
+export const LAYER_IDS = LAYER_DEFS.map(l => l.id);
 
-// Runs the 6-layer pipeline. `onStatus(id, status)` is called as each
-// layer flips from 'pending' → 'running' → pass/warn/fail.
-// Returns { signals, decision } at the end.
-export async function runPipeline({ source, uploaded, freeText, previewPrompt, onStatus }) {
+export function initialLayerStatus() {
+  return Object.fromEntries(LAYER_IDS.map(id => [id, 'pending']));
+}
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Client-side preflight: L0–L3.
+ *
+ * Gives the customer immediate feedback and lets an obviously-blocked submission
+ * be stopped before a network round trip. Never authoritative.
+ */
+export async function runPreflight({
+  source, uploaded, freeText, cardholderName, selections, orientation, onStatus,
+  shouldStop = () => false,
+}) {
+  const set = (id, status) => onStatus?.(id, status);
   const signals = {};
-  const promptResult = sanitizePrompt(freeText || previewPrompt || '');
+  // Returned when the customer cancels mid-flight so the caller can bail without
+  // treating a partial pass as a verdict.
+  const stopped = () => ({ stopped: true, signals, verdict: null, blocked: false });
 
-  const run = async (id, delay, work) => {
-    onStatus(id, 'running');
-    await sleep(delay);
-    const status = work();
-    onStatus(id, status);
+  // ── L0 · Prompt ──────────────────────────────────────────────────────────
+  set('L0', 'running');
+  await sleep(300);
+  if (shouldStop()) return stopped();
+  const styleText = buildStyleText(selections);
+
+  // ── L2 · Upload measurement (needed before scoring) ──────────────────────
+  const hasUpload = source === 'upload' && !!uploaded;
+  let upload = null;
+  if (hasUpload) {
+    upload = await measureUpload(uploaded, orientation);
+  }
+
+  // Image detectors are genuinely not wired up. Report them as unavailable and
+  // let the scoring engine refuse to auto-approve on their behalf.
+  const detectors = {
+    nsfw:      { available: false, value: null },
+    celebrity: { available: false, value: null },
+    logo:      { available: false, value: null },
+    ocrText:   { available: false, value: null },
   };
+  if (upload?.available) {
+    detectors.imageQuality = { available: true, value: upload.qualityRisk };
+  }
 
-  await run('L0', 700, () => {
-    const st = promptResult.riskScore > 60 ? 'fail' : promptResult.riskScore > 25 ? 'warn' : 'pass';
-    signals.promptRisk = promptResult.riskScore;
-    signals.promptFlags = promptResult.flagsHit;
-    signals.sanitizedPrompt = promptResult.sanitized;
-    return st;
+  const verdict = evaluateSubmission({
+    freeText,
+    styleText,
+    cardholderName,
+    hasUpload,
+    detectors,
   });
 
-  await run('L1', 600, () => {
-    if (source === 'upload' && !uploaded) return 'fail';
-    signals.fileOK = true;
-    signals.resolution = '2048×1290';
-    signals.dpi = 600;
-    return 'pass';
-  });
+  signals.promptRisk = verdict.prompt.riskScore;
+  signals.promptFlags = verdict.prompt.categories;
+  signals.promptBlocked = verdict.prompt.blockedCategories;
+  signals.obfuscationDetected = verdict.prompt.obfuscationDetected;
+  signals.previewPrompt = buildPreviewPrompt(selections, verdict.safeFreeText);
+  signals.sanitizedPrompt = verdict.safeFreeText;
+  signals.redactions = verdict.redaction.redactions.length;
 
-  await run('L2', 1100, () => {
-    signals.nsfw = +(Math.random() * 4).toFixed(1);
-    signals.faces = uploaded ? 1 : 0;
-    signals.celebrity = 0;
-    signals.logoDetected = false;
-    signals.textChars = 0;
-    signals.clipSimilarity = +(0.05 + Math.random() * 0.18).toFixed(2);
-    signals.objects = [];
-    if (promptResult.riskScore > 60) { signals.celebrity = 0.78; return 'fail'; }
-    if (promptResult.riskScore > 25) { signals.celebrity = 0.42; return 'warn'; }
-    return 'pass';
-  });
+  set('L0',
+    verdict.prompt.hardBlocked ? 'fail' :
+    verdict.prompt.categories.length ? 'warn' : 'pass');
 
-  await run('L3', 500, () => {
-    const score =
-      (signals.nsfw * 0.30) +
-      (signals.celebrity * 100 * 0.20) +
-      (signals.promptRisk * 0.15) +
-      ((signals.logoDetected ? 50 : 0) * 0.10) +
-      ((signals.textChars > 10 ? 40 : 0) * 0.10) +
-      ((signals.objects.length > 0 ? 30 : 0) * 0.10) +
-      (seedNoise() * 0.05);
-    signals.riskScore = Math.min(Math.round(score), 100);
-    signals.safetyScore = 100 - signals.riskScore;
-    return signals.riskScore < 20 ? 'pass' : signals.riskScore < 50 ? 'warn' : 'fail';
-  });
+  // ── L1 · Cardholder name ─────────────────────────────────────────────────
+  set('L1', 'running');
+  await sleep(250);
+  if (shouldStop()) return stopped();
+  signals.nameSeverity = verdict.name.severity;
+  signals.nameNormalized = verdict.name.normalized;
+  signals.nameRisk = verdict.name.riskScore;
+  signals.nameReasons = verdict.name.reasons;
+  signals.nameEmpty = verdict.name.empty;
+  set('L1',
+    verdict.name.severity === 'block' ? 'fail' :
+    verdict.name.severity === 'review' ? 'warn' : 'pass');
 
-  let decision;
-  await run('L4', 400, () => {
-    const r = signals.riskScore;
-    if (r < 20)      decision = { code: 'AUTO_APPROVE',  label: 'Auto Approved', tone: 'pass', icon: '✓', reason: 'Risk score below threshold. Image dispatched to embosser queue.' };
-    else if (r < 40) decision = { code: 'QUICK_REVIEW',  label: 'Quick Review',  tone: 'warn', icon: '⏱', reason: 'Borderline signals. Will auto-approve in 2 mins unless ops intervenes.' };
-    else if (r < 70) decision = { code: 'MANUAL_REVIEW', label: 'Manual Review', tone: 'warn', icon: '👁', reason: 'Routed to ops dashboard for human approval.' };
-    else             decision = { code: 'REJECTED',      label: 'Rejected',      tone: 'fail', icon: '✕', reason: 'Hard-blocked by compliance signals. Customer is shown a friendly message.' };
-    return decision.tone;
-  });
+  // ── L2 · Upload guardrails ───────────────────────────────────────────────
+  set('L2', 'running');
+  await sleep(250);
+  if (shouldStop()) return stopped();
+  if (!hasUpload) {
+    signals.upload = null;
+    set('L2', 'skip');
+  } else {
+    signals.upload = upload;
+    signals.resolution = upload.resolution;
+    signals.dpi = upload.dpi;
+    signals.sharpness = upload.sharpness;
+    signals.fileOK = upload.fileOK;
+    set('L2', !upload.fileOK ? 'fail' : upload.issues.length ? 'warn' : 'pass');
+  }
 
-  await run('L5', 500, () => {
-    signals.userRisk = 0.08;
-    signals.duplicate = false;
-    return 'pass';
-  });
+  // ── L3 · Image analysis ──────────────────────────────────────────────────
+  set('L3', 'running');
+  await sleep(300);
+  if (shouldStop()) return stopped();
+  signals.detectors = detectors;
+  signals.unevaluatedDetectors = Object.entries(detectors)
+    .filter(([, d]) => !d.available)
+    .map(([k]) => k);
+  // The browser holds no moderation credential, so nothing has classified the
+  // imagery yet. finalizeLayers revises this once the server reports back.
+  set('L3', signals.unevaluatedDetectors.length ? 'skip' : 'pass');
 
-  await run('L6', 400, () => {
-    signals.feedbackLogged = true;
-    signals.modelVersion = 'v2026.04-a';
-    signals.cohortSignal = decision?.code || 'PENDING';
-    return 'pass';
-  });
+  return {
+    signals,
+    verdict,
+    blocked: !verdict.allowGeneration,
+    hasUpload,
+    detectors,
+    stopped: false,
+  };
+}
 
-  return { signals, decision };
+/**
+ * Fold the server's authoritative verdict into the layer display: L4–L7.
+ *
+ * `server` may be null when the request never reached the server (client
+ * preflight already hard-blocked), in which case the client verdict is shown and
+ * labelled as such.
+ */
+export async function finalizeLayers({
+  server, clientVerdict, signals, onStatus, shouldStop = () => false,
+}) {
+  const set = (id, status) => onStatus?.(id, status);
+  const authoritative = server ?? clientVerdict;
+
+  // ── Revise L0 / L3 with the server's model verdict ───────────────────────
+  // The client could only run the deterministic blocklists; the server also ran
+  // a moderation classifier over the prompt, the uploaded photo and the
+  // generated artwork. Those layers now report the real outcome.
+  const moderation = server?.moderation;
+  signals.moderation = moderation ?? { available: false, configured: false, provider: 'none' };
+
+  if (moderation?.available) {
+    signals.detectors = authoritative.components
+      ? Object.fromEntries(
+          authoritative.components
+            .filter(c => ['nsfw', 'celebrity', 'logo', 'ocrText', 'imageQuality'].includes(c.key))
+            .map(c => [c.key, { available: c.available, value: c.value }]),
+        )
+      : signals.detectors;
+    signals.modelScores = moderation.scores;
+    signals.modelBlocked = moderation.blocked;
+    signals.modelReview = moderation.review;
+    signals.droppedImages = server.droppedImages ?? 0;
+
+    set('L3',
+      moderation.blocked?.length ? 'fail'
+        : moderation.review?.length ? 'warn' : 'pass');
+
+    // The prompt layer's verdict also improves once the classifier has seen it.
+    if (server.promptCategories?.length || moderation.blocked?.length) {
+      set('L0', moderation.blocked?.length || server.hardBlocked ? 'fail' : 'warn');
+    }
+  } else if (server) {
+    // Server responded but moderation was unavailable — keep it unevaluated.
+    set('L3', 'skip');
+  }
+
+  // ── L4 · Risk scoring ────────────────────────────────────────────────────
+  set('L4', 'running');
+  await sleep(250);
+  if (shouldStop()) return { signals, decision: null, stopped: true };
+  signals.riskScore = authoritative.riskScore;
+  signals.safetyScore = authoritative.safetyScore;
+  signals.components = authoritative.components;
+  signals.coverage = authoritative.coverage;
+  signals.unevaluated = authoritative.unevaluated;
+  signals.notes = authoritative.notes;
+  signals.enforcedBy = server ? 'server' : 'client (blocked before dispatch)';
+  set('L4',
+    signals.riskScore >= 70 ? 'fail' :
+    signals.riskScore >= 20 ? 'warn' : 'pass');
+
+  // ── L5 · Routing ─────────────────────────────────────────────────────────
+  set('L5', 'running');
+  await sleep(200);
+  const decision = authoritative.decision;
+  set('L5', decision.tone);
+
+  // ── L6 · Fraud detection ─────────────────────────────────────────────────
+  set('L6', 'running');
+  await sleep(200);
+  // Not implemented. Previously reported userRisk: 0.08 and duplicate: false as
+  // constants, which read as a passing check.
+  signals.fraudEvaluated = false;
+  set('L6', 'skip');
+
+  // ── L7 · Continuous learning ─────────────────────────────────────────────
+  set('L7', 'running');
+  await sleep(150);
+  signals.feedbackLogged = false;
+  signals.cohortSignal = decision.code;
+  set('L7', 'skip');
+
+  return { signals, decision, stopped: false };
 }

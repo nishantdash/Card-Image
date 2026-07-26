@@ -28,7 +28,20 @@ export function AppProvider({ children }) {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiLoadingText, setAiLoadingText] = useState('');
   const [errorBanner, setErrorBanner] = useState('');
-  const [regenCount, setRegenCount] = useState(0);
+  // Every dispatched generation counts as one iteration — the initial run, each
+  // "Try again", and each orientation re-render. Tracked per orientation because
+  // switching horizontal/vertical triggers a real provider call, and ops needs to
+  // see that effort. The old `regenCount` started at 0 on the first generation
+  // and never counted orientation re-renders at all.
+  const [iterations, setIterations] = useState({ total: 0, horizontal: 0, vertical: 0 });
+  const recordIteration = useCallback((orientation) => {
+    const orient = orientation === 'vertical' ? 'vertical' : 'horizontal';
+    setIterations((cur) => ({
+      total: cur.total + 1,
+      horizontal: cur.horizontal + (orient === 'horizontal' ? 1 : 0),
+      vertical: cur.vertical + (orient === 'vertical' ? 1 : 0),
+    }));
+  }, []);
   const [lastPrompt, setLastPrompt] = useState('');
   const hasGeneratedRef = useRef(false);
   const seedRef = useRef(null);
@@ -76,7 +89,7 @@ export function AppProvider({ children }) {
     setAiLoading(false);
     setAiLoadingText('');
     setErrorBanner('');
-    setRegenCount(0);
+    setIterations({ total: 0, horizontal: 0, vertical: 0 });
     setLastPrompt('');
     setCardholderName('');
     setLayerStatus({});
@@ -108,7 +121,7 @@ export function AppProvider({ children }) {
     aiLoading, setAiLoading,
     aiLoadingText, setAiLoadingText,
     errorBanner, setErrorBanner,
-    regenCount, setRegenCount,
+    iterations, recordIteration,
     lastPrompt, setLastPrompt,
     hasGeneratedRef, seedRef,
     resetCustomer,

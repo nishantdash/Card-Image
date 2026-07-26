@@ -24,19 +24,42 @@ export function generateCustomerId() {
   return 'CUST-' + Math.floor(8000 + Math.random() * 2000);
 }
 
-export function computeConfidence(riskScore) {
-  return Math.round(Math.min(100, Math.abs(50 - riskScore) * 2));
+/**
+ * Confidence in the routing decision.
+ *
+ * Distance from the decision boundary is only half the story — a score derived
+ * from a model where most detectors never ran is not a confident score, so
+ * coverage scales it down.
+ */
+export function computeConfidence(riskScore, coverage = 100) {
+  const distance = Math.min(100, Math.abs(50 - riskScore) * 2);
+  return Math.round(distance * (Math.max(0, Math.min(100, coverage)) / 100));
 }
 
 export function buildFlagsFromSignals(s) {
   if (!s) return [];
   const flags = [];
-  if (s.celebrity > 0.4)     flags.push(`celebrity:${s.celebrity.toFixed(2)}`);
-  if (s.logoDetected)        flags.push('logo');
-  if (s.textChars > 10)      flags.push(`text:${s.textChars}ch`);
-  if (s.clipSimilarity > 0.3) flags.push(`clip:${s.clipSimilarity.toFixed(2)}`);
-  if (s.promptRisk > 25)     flags.push(`prompt:${s.promptRisk}`);
-  if (flags.length === 0)    flags.push('clean');
+
+  if (s.promptRisk > 25) flags.push(`prompt:${s.promptRisk}`);
+  for (const cat of s.promptFlags || []) flags.push(cat);
+  if (s.obfuscationDetected) flags.push('obfuscated');
+
+  if (s.nameSeverity === 'block') flags.push('name:blocked');
+  else if (s.nameSeverity === 'review') flags.push('name:review');
+
+  for (const [key, d] of Object.entries(s.detectors || {})) {
+    if (!d.available) continue;
+    if (d.value > 25) flags.push(`${key}:${d.value}`);
+  }
+
+  if (s.upload?.issues?.length) flags.push(`quality:${s.upload.issues.length}`);
+
+  // "Not evaluated" is a distinct state from "clean" and reviewers need to see
+  // it — the old version emitted 'clean' whenever nothing tripped, including
+  // when nothing had actually been checked.
+  if (s.unevaluated?.length) flags.push(`unevaluated:${s.unevaluated.length}`);
+
+  if (flags.length === 0) flags.push('clean');
   return flags;
 }
 

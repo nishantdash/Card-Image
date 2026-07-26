@@ -10,19 +10,73 @@ const PRESET_REASONS = [
   'Text in image is illegible or non-compliant',
 ];
 
+const NOT_EVALUATED = 'Not evaluated';
+
+// A detector that never ran is shown as such. The previous version defaulted
+// every missing signal to `?? 0` and rendered it green, so a reviewer could not
+// distinguish "measured clean" from "never measured" — which is precisely the
+// judgement a human reviewer is here to make.
+function detectorRow(name, signals, key) {
+  const d = signals.detectors?.[key];
+  if (!d || !d.available) return { name, val: NOT_EVALUATED, tone: 'unknown' };
+  return {
+    name,
+    val: `${d.value}/100`,
+    tone: d.value < 25 ? 'ok' : d.value < 60 ? 'warn' : 'bad',
+  };
+}
+
 function signalRows(signals, cohortApproval, styleLabel) {
   if (!signals) return [];
-  return [
-    { name: 'Prompt Risk',     val: (signals.promptRisk ?? 0) + '/100', tone: (signals.promptRisk ?? 0) < 25 ? 'ok' : (signals.promptRisk ?? 0) < 60 ? 'warn' : 'bad' },
-    { name: 'NSFW',            val: (signals.nsfw ?? 0) + '%',          tone: (signals.nsfw ?? 0) < 5 ? 'ok' : 'warn' },
-    { name: 'Faces',           val: signals.faces ?? 0,                 tone: 'ok' },
-    { name: 'Celebrity Match', val: ((signals.celebrity ?? 0) * 100).toFixed(0) + '%', tone: (signals.celebrity ?? 0) < 0.4 ? 'ok' : (signals.celebrity ?? 0) < 0.7 ? 'warn' : 'bad' },
-    { name: 'Logo Detected',   val: signals.logoDetected ? 'Yes' : 'No', tone: signals.logoDetected ? 'bad' : 'ok' },
-    { name: 'OCR Text',        val: (signals.textChars ?? 0) + ' chars', tone: (signals.textChars ?? 0) < 10 ? 'ok' : 'warn' },
-    { name: 'CLIP Similarity', val: signals.clipSimilarity ?? 0,         tone: (signals.clipSimilarity ?? 0) < 0.3 ? 'ok' : 'warn' },
-    { name: 'User Risk',       val: signals.userRisk ?? 0,               tone: (signals.userRisk ?? 0) < 0.2 ? 'ok' : 'warn' },
-    { name: `Cohort Approval (${styleLabel})`, val: cohortApproval + '%', tone: cohortApproval >= 90 ? 'ok' : cohortApproval >= 80 ? 'warn' : 'bad' },
+  const promptRisk = signals.promptRisk ?? 0;
+  const rows = [
+    { name: 'Prompt Risk', val: `${promptRisk}/100`,
+      tone: promptRisk < 25 ? 'ok' : promptRisk < 60 ? 'warn' : 'bad' },
+    { name: 'Cardholder Name',
+      val: signals.nameSeverity === 'ok' ? 'Clean'
+        : signals.nameSeverity === 'review' ? 'Needs review'
+        : signals.nameSeverity === 'block' ? 'Blocked' : NOT_EVALUATED,
+      tone: signals.nameSeverity === 'ok' ? 'ok'
+        : signals.nameSeverity === 'review' ? 'warn'
+        : signals.nameSeverity === 'block' ? 'bad' : 'unknown' },
+    detectorRow('NSFW', signals, 'nsfw'),
+    detectorRow('Celebrity Match', signals, 'celebrity'),
+    detectorRow('Logo / Trademark', signals, 'logo'),
+    detectorRow('OCR Text', signals, 'ocrText'),
+    detectorRow('Image Quality', signals, 'imageQuality'),
+    { name: 'Fraud Checks', val: signals.fraudEvaluated ? 'Clean' : NOT_EVALUATED,
+      tone: signals.fraudEvaluated ? 'ok' : 'unknown' },
+    { name: 'Model Coverage', val: `${signals.coverage ?? 0}%`,
+      tone: (signals.coverage ?? 0) >= 90 ? 'ok' : (signals.coverage ?? 0) >= 60 ? 'warn' : 'bad' },
+    { name: 'Enforced By', val: signals.enforcedBy || 'unknown',
+      tone: signals.enforcedBy === 'server' ? 'ok' : 'warn' },
+    { name: `Cohort Approval (${styleLabel})`, val: cohortApproval + '%',
+      tone: cohortApproval >= 90 ? 'ok' : cohortApproval >= 80 ? 'warn' : 'bad' },
   ];
+  if (signals.upload) {
+    rows.splice(7, 0, {
+      name: 'Upload',
+      val: `${signals.upload.resolution} · ${signals.upload.dpi} DPI`,
+      tone: signals.upload.dpi >= 300 ? 'ok' : 'warn',
+    });
+  }
+  return rows;
+}
+
+/**
+ * Total generation attempts for a submission, per orientation.
+ *
+ * Accepts the legacy `regenCount` shape so items persisted from an older session
+ * still render. `regenCount` undercounted — it skipped the first generation and
+ * never saw orientation re-renders — so it is reported as a total only, with no
+ * orientation split to imply.
+ */
+function normalizeIterations(item) {
+  if (item.iterations && typeof item.iterations.total === 'number') return item.iterations;
+  if (typeof item.regenCount === 'number') {
+    return { total: item.regenCount, horizontal: 0, vertical: 0, legacy: true };
+  }
+  return null;
 }
 
 function RejectModalBody({ item, inputRef, onPresetClick }) {
@@ -69,6 +123,7 @@ export default function OpsItem({ item }) {
   const orientClass = (item.orientation || 'horizontal') === 'vertical' ? 'vertical' : '';
   const thumbCardStyle = item.imageUrl ? { backgroundImage: `url('${item.imageUrl}')` } : undefined;
   const thumbClass = item.imageUrl ? '' : (item.art || '');
+  const iters = normalizeIterations(item);
 
   const approve = () => {
     setOpsHistory((h) => ({ ...h, approved: [{ ...item, decisionAt: Date.now() }, ...h.approved] }));
@@ -139,10 +194,17 @@ export default function OpsItem({ item }) {
           <strong>{cohortApproval}%</strong>
         </div>
 
-        {item.regenCount != null && (
+        {iters && (
           <div className="ops-regen-count">
-            <span>Regeneration attempts</span>
-            <strong>{item.regenCount}</strong>
+            <span>Generation attempts</span>
+            <strong>
+              {iters.total}
+              {(iters.horizontal > 0 || iters.vertical > 0) && (
+                <span className="iter-split">
+                  {' '}({iters.horizontal}H · {iters.vertical}V)
+                </span>
+              )}
+            </strong>
           </div>
         )}
 

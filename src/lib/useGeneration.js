@@ -1,12 +1,14 @@
 import { useCallback } from 'react';
 import { useApp } from '../context/AppContext.jsx';
-import { PROVIDERS, buildFullPrompt, buildEditPrompt, callProvider, resizeImageDataURL, buildFallbackArt } from './providers.js';
+import {
+  PROVIDERS, IS_SERVER_ENFORCED, requestGeneration, resizeImageDataURL, buildFallbackArt,
+} from './providers.js';
 import { fetchBankCardTemplate, composeEmbosserReadyArtwork } from './bankTemplate.js';
 
 const VARIATION_COUNT = 3;
 const bankTemplateCache = { current: null };
 
-// Backend-only — builds embosser-ready composite for the currently selected variation.
+// Backend-only — builds embosser-ready composite for the selected variation.
 async function prepareEmbosserOutput(variation) {
   if (!variation?.src) return null;
   try {
@@ -20,109 +22,126 @@ async function prepareEmbosserOutput(variation) {
   }
 }
 
+function toVariation(src, orientation) {
+  return {
+    src,
+    cache: {
+      horizontal: orientation === 'horizontal' ? src : null,
+      vertical:   orientation === 'vertical'   ? src : null,
+    },
+  };
+}
+
 export function useGeneration() {
   const {
-    source, uploaded, selections, freeText, cardOrientation,
+    source, uploaded, selections, freeText, cardOrientation, cardholderName,
     settings, hasGeneratedRef, seedRef,
     setVariations, setSelectedVariation, setAiLoading, setAiLoadingText,
-    setErrorBanner, setRegenCount, setLastPrompt, showToast,
+    setErrorBanner, recordIteration, setLastPrompt, showToast,
   } = useApp();
 
-  const generate = useCallback(async () => {
-    if (hasGeneratedRef.current) {
-      setRegenCount((c) => c + 1);
-    }
+  /**
+   * Request generation.
+   *
+   * Returns the authoritative verdict so the caller can route on it. Crucially,
+   * this no longer runs concurrently with moderation — the request itself is
+   * what applies the guardrails, and a refusal produces no artwork at all.
+   */
+  const generate = useCallback(async ({ signal } = {}) => {
     hasGeneratedRef.current = true;
-
     setErrorBanner('');
+
     const isEdit = source === 'upload' && !!uploaded;
-    const providerLabel = PROVIDERS[settings.provider]?.label || 'AI';
+    const orientation = cardOrientation || 'horizontal';
 
-    const prompt = isEdit ? buildEditPrompt(selections, freeText) : buildFullPrompt(selections, freeText);
-    setLastPrompt(prompt);
-
-    console.log(
-      '[image generation] mode=%s provider=%s count=%d prompt=%s',
-      isEdit ? 'image-to-image' : 'text-to-image',
-      settings.provider, VARIATION_COUNT, prompt,
-    );
-
+    // Counted at dispatch, not on success: a run that fails or is refused by
+    // moderation still consumed an attempt, and that is what ops needs to see.
+    recordIteration(orientation);
     setAiLoading(true);
     setAiLoadingText(
       isEdit
-        ? `Stylizing your photo with ${providerLabel} (×${VARIATION_COUNT})…`
-        : `Generating with ${providerLabel} (×${VARIATION_COUNT})…`,
+        ? `Stylizing your photo (×${VARIATION_COUNT})…`
+        : `Generating your design (×${VARIATION_COUNT})…`,
     );
 
-    if (isEdit && settings.provider !== 'gemini') {
-      setErrorBanner(
-        `⚠ ${providerLabel} does not support image-to-image in this prototype. ` +
-        `Switch to Google Gemini in the Ops Dashboard for true photo stylization. ` +
-        `Falling back to text-to-image — your uploaded photo will NOT influence the result.`,
-      );
-    }
-
     let inputImage = null;
-    if (isEdit && settings.provider === 'gemini') {
+    if (isEdit) {
       try {
         inputImage = await resizeImageDataURL(uploaded.dataURL, 1024, 0.9);
       } catch (err) {
-        setErrorBanner(`✕ Failed to prepare uploaded image: ${err.message}`);
         setAiLoading(false);
-        return;
+        setErrorBanner(`✕ Failed to prepare uploaded image: ${err.message}`);
+        return { images: [], verdict: null, refused: false, error: err.message };
       }
     }
 
-    const orientation = cardOrientation || 'horizontal';
+    if (isEdit && !IS_SERVER_ENFORCED && settings.provider !== 'gemini') {
+      setErrorBanner(
+        `⚠ ${PROVIDERS[settings.provider]?.label || 'This provider'} does not support ` +
+        `image-to-image in local direct mode. Your photo will not influence the result.`,
+      );
+    }
 
-    const tasks = Array.from({ length: VARIATION_COUNT }, (_, i) =>
-      callProvider(settings, prompt, inputImage, orientation, seedRef).catch((err) => {
-        console.error(`[image generation] variation ${i + 1} failed`, err);
-        return { error: err.message };
-      }),
-    );
-    const results = await Promise.all(tasks);
-
-    const successes = results.filter(r => r && r.src);
-    const failures  = results.filter(r => r && r.error);
+    let result;
+    let transportError = null;
+    try {
+      result = await requestGeneration({
+        settings, selections, freeText, cardholderName, orientation,
+        inputImage, variations: VARIATION_COUNT, seedRef, signal,
+      });
+    } catch (err) {
+      // Cancellation is a deliberate customer action, not a failure: no error
+      // banner, and crucially no fallback artwork — showing sample art here would
+      // make a cancelled run look like it succeeded.
+      if (err.name === 'AbortError') {
+        setAiLoading(false);
+        return { images: [], verdict: null, refused: false, cancelled: true };
+      }
+      console.error('[generation] request failed', err);
+      transportError = err;
+      // A transport failure is not a refusal. Keep the server's verdict if it
+      // sent one (e.g. a 503 for missing configuration) and fall through to the
+      // offline-artwork path below, so a demo survives an unreachable backend.
+      result = { images: [], verdict: err.verdict ?? null, refused: false };
+    }
 
     setAiLoading(false);
+    setLastPrompt(result.verdict?.prompt || '');
 
-    // Demo-safe fallback: never leave the customer with an empty/failed card.
-    // Any variation that failed is replaced with on-brand offline artwork so the
-    // journey always continues. Real errors are still logged to the console.
-    const built = results.map((r, i) => {
-      let src = r && r.src ? r.src : null;
-      if (!src) {
-        const fb = buildFallbackArt(selections, orientation, (seedRef.current || 1) + i);
-        src = fb.src;
-      }
-      return {
-        src,
-        cache: {
-          horizontal: orientation === 'horizontal' ? src : null,
-          vertical:   orientation === 'vertical'   ? src : null,
-        },
-      };
-    });
-    setVariations(built);
-    setSelectedVariation(0);
-
-    if (successes.length === 0) {
-      setErrorBanner('');
-      showToast('warn', `${providerLabel} is unreachable right now — showing sample artwork so you can keep going.`);
-    } else if (failures.length > 0) {
-      setErrorBanner('');
-      showToast('warn', `${successes.length} of ${VARIATION_COUNT} designs generated — the rest use sample artwork.`);
+    // A refusal must not produce artwork. Showing placeholder art here would
+    // render a compliance block as a successful design.
+    if (result.refused) {
+      setVariations([]);
+      setSelectedVariation(0);
+      return result;
     }
 
-    // backend-only embosser compositing (fire and forget)
+    const built = result.images.map(src => toVariation(src, orientation));
+
+    // Offline fallback applies only to provider failures on an ALLOWED
+    // submission, so a live demo survives an unreachable provider.
+    if (built.length === 0) {
+      const seed = seedRef.current || 1;
+      for (let i = 0; i < VARIATION_COUNT; i++) {
+        built.push(toVariation(buildFallbackArt(selections, orientation, seed + i).src, orientation));
+      }
+      showToast('warn', 'Image service is unreachable right now — showing sample artwork so you can keep going.');
+      if (transportError) {
+        setErrorBanner(`⚠ ${transportError.message}`);
+      }
+    } else if (built.length < VARIATION_COUNT) {
+      showToast('warn', `${built.length} of ${VARIATION_COUNT} designs generated.`);
+    }
+
+    setVariations(built);
+    setSelectedVariation(0);
     if (built[0]) prepareEmbosserOutput(built[0]);
+
+    return result;
   }, [
-    source, uploaded, selections, freeText, cardOrientation, settings,
-    hasGeneratedRef, seedRef,
-    setAiLoading, setAiLoadingText, setErrorBanner, setLastPrompt,
-    setRegenCount, setVariations, setSelectedVariation, showToast,
+    source, uploaded, selections, freeText, cardOrientation, cardholderName, settings,
+    hasGeneratedRef, seedRef, setAiLoading, setAiLoadingText, setErrorBanner,
+    setLastPrompt, recordIteration, setVariations, setSelectedVariation, showToast,
   ]);
 
   const ensureOrientation = useCallback(async (variations, index, orient, setVariationsFn) => {
@@ -130,34 +149,47 @@ export function useGeneration() {
     if (!v || v.failed) return;
     if (!v.cache) v.cache = { horizontal: null, vertical: null };
     if (v.cache[orient]) {
-      setVariationsFn((cur) => cur.map((x, i) => i === index ? { ...x, src: x.cache[orient] } : x));
+      setVariationsFn(cur => cur.map((x, i) => (i === index ? { ...x, src: x.cache[orient] } : x)));
       prepareEmbosserOutput({ ...v, src: v.cache[orient] });
       return;
     }
 
-    const providerLabel = PROVIDERS[settings.provider]?.label || 'AI';
+    // A cache hit returned above without a provider call, so only a real
+    // re-render is counted — this is the orientation-switch iteration the old
+    // counter missed entirely.
+    recordIteration(orient);
     setAiLoading(true);
-    setAiLoadingText(`Re-rendering for ${orient} card with ${providerLabel}…`);
-
+    setAiLoadingText(`Re-rendering for ${orient} card…`);
     try {
       const isEdit = source === 'upload' && !!uploaded;
       let inputImage = null;
-      if (isEdit && settings.provider === 'gemini') {
-        inputImage = await resizeImageDataURL(uploaded.dataURL, 1024, 0.9);
+      if (isEdit) inputImage = await resizeImageDataURL(uploaded.dataURL, 1024, 0.9);
+
+      const result = await requestGeneration({
+        settings, selections, freeText, cardholderName, orientation: orient,
+        inputImage, variations: 1, seedRef,
+      });
+      // Re-rendering runs the same guardrails; a refusal here is still a refusal.
+      if (result.refused) {
+        showToast('fail', 'This design can no longer be generated — it was blocked by moderation.');
+        return;
       }
-      const result = await callProvider(settings, /* lastPrompt */ buildFullPrompt(selections, freeText), inputImage, orient, seedRef);
-      if (!result?.src) throw new Error('Provider returned no image');
-      setVariationsFn((cur) => cur.map((x, i) => i === index
-        ? { ...x, src: result.src, cache: { ...(x.cache || {}), [orient]: result.src } }
-        : x));
-      prepareEmbosserOutput({ ...v, src: result.src });
+      const src = result.images[0];
+      if (!src) throw new Error('No image returned');
+      setVariationsFn(cur => cur.map((x, i) => (i === index
+        ? { ...x, src, cache: { ...(x.cache || {}), [orient]: src } }
+        : x)));
+      prepareEmbosserOutput({ ...v, src });
     } catch (err) {
       console.error('[orient] regenerate failed', err);
       showToast('fail', `Could not render ${orient} card: ${err.message}`);
     } finally {
       setAiLoading(false);
     }
-  }, [source, uploaded, selections, freeText, settings, seedRef, setAiLoading, setAiLoadingText, showToast]);
+  }, [
+    source, uploaded, selections, freeText, cardholderName, settings, seedRef,
+    setAiLoading, setAiLoadingText, showToast, recordIteration,
+  ]);
 
   return { generate, ensureOrientation, VARIATION_COUNT };
 }

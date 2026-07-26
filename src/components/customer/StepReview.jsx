@@ -8,29 +8,44 @@ const STATUS_LABEL = {
   pass:    'Passed',
   warn:    'Flagged',
   fail:    'Blocked',
+  skip:    'Not evaluated',
 };
 
-// Map technical layer ids → customer-friendly check labels
+// Customer-friendly groupings over the technical layers.
 const FRIENDLY_CHECKS = [
-  { ids: ['L1'],        label: 'Photo quality',         icon: '📷' },
-  { ids: ['L0', 'L2'],  label: 'Content is appropriate', icon: '✨' },
-  { ids: ['L3', 'L4'],  label: 'Design approval',       icon: '✅' },
-  { ids: ['L5', 'L6'],  label: 'Final safety check',    icon: '🛡️' },
+  { ids: ['L0', 'L1'],       label: 'Content is appropriate', icon: '✨' },
+  { ids: ['L2', 'L3'],       label: 'Photo & image checks',   icon: '📷' },
+  { ids: ['L4', 'L5'],       label: 'Design approval',        icon: '✅' },
+  { ids: ['L6', 'L7'],       label: 'Final safety check',     icon: '🛡️' },
 ];
 
 function aggregateStatus(layerStatus, ids) {
-  const states = ids.map((id) => layerStatus[id] || 'pending');
-  if (states.some((s) => s === 'fail')) return 'fail';
-  if (states.some((s) => s === 'warn')) return 'warn';
-  if (states.some((s) => s === 'running') || states.some((s) => s === 'pending')) {
-    return states.every((s) => s === 'pending') ? 'pending' : 'running';
+  const states = ids.map(id => layerStatus[id] || 'pending');
+  if (states.some(s => s === 'fail')) return 'fail';
+  if (states.some(s => s === 'warn')) return 'warn';
+  if (states.some(s => s === 'running')) return 'running';
+  if (states.some(s => s === 'pending')) {
+    return states.every(s => s === 'pending') ? 'pending' : 'running';
   }
+  // 'skip' only wins when nothing in the group actually ran.
+  if (states.every(s => s === 'skip')) return 'skip';
   return 'pass';
 }
+
+const FRIENDLY_STATUS = {
+  pass: 'Done',
+  running: 'Checking…',
+  warn: 'Review',
+  fail: 'Issue',
+  skip: 'Not checked',
+  pending: 'Waiting',
+};
 
 export default function StepReview() {
   const { layerStatus } = useApp();
   const [techOpen, setTechOpen] = useState(false);
+
+  const anySkipped = Object.values(layerStatus).some(s => s === 'skip');
 
   return (
     <div className="review-friendly">
@@ -46,12 +61,14 @@ export default function StepReview() {
           return (
             <div key={c.label} className={`fcheck fcheck-${status}`}>
               <span className="fcheck-icon">
-                {status === 'pass' ? '✓' : status === 'fail' ? '✕' : status === 'warn' ? '!' : c.icon}
+                {status === 'pass' ? '✓'
+                  : status === 'fail' ? '✕'
+                  : status === 'warn' ? '!'
+                  : status === 'skip' ? '–'
+                  : c.icon}
               </span>
               <span className="fcheck-label">{c.label}</span>
-              <span className="fcheck-status">
-                {status === 'pass' ? 'Done' : status === 'running' ? 'Checking…' : status === 'warn' ? 'Review' : status === 'fail' ? 'Issue' : 'Waiting'}
-              </span>
+              <span className="fcheck-status">{FRIENDLY_STATUS[status]}</span>
             </div>
           );
         })}
@@ -59,6 +76,13 @@ export default function StepReview() {
 
       <details className="review-tech" open={techOpen} onToggle={(e) => setTechOpen(e.target.open)}>
         <summary>Technical details</summary>
+        {anySkipped && (
+          <p className="muted small">
+            Layers marked <strong>Not evaluated</strong> have no detector wired up in this
+            build. They are reported as unevaluated rather than passing, and they
+            prevent auto-approval.
+          </p>
+        )}
         <div className="pipeline">
           {LAYER_DEFS.map((L) => {
             const status = layerStatus[L.id] || 'pending';

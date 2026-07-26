@@ -1,24 +1,29 @@
+import { useMemo } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
 import { useGeneration } from '../../lib/useGeneration.js';
+import { validateCardholderName, firstNameError } from '../../../shared/guardrails/index.js';
 import { generateCustomerId, computeConfidence, buildFlagsFromSignals } from '../../lib/utils.js';
+
+const NOT_EVALUATED = 'Not evaluated';
 
 export default function StepResult() {
   const {
     signals, decision, variations, selectedVariation, setSelectedVariation,
-    cardOrientation, cardholderName, selections, regenCount, setVariations,
-    openModal, closeModal, showToast, resetCustomer, setOpsQueue,
+    cardOrientation, cardholderName, selections, iterations, setVariations,
+    openModal, showToast, resetCustomer, setOpsQueue,
   } = useApp();
   const { generate, ensureOrientation } = useGeneration();
 
+  const nameCheck = useMemo(() => validateCardholderName(cardholderName), [cardholderName]);
+
   if (!signals || !decision) return null;
+
+  const blocked = decision.code === 'REJECTED';
+  const hasArtwork = variations.length > 0;
 
   const pickVariation = async (i) => {
     setSelectedVariation(i);
     await ensureOrientation(variations, i, cardOrientation, setVariations);
-  };
-
-  const onRegen = async () => {
-    await generate();
   };
 
   const submitToOps = (selected, name) => {
@@ -28,40 +33,44 @@ export default function StepResult() {
     const orient = cardOrientation || 'horizontal';
     const imageUrl = selected.cache?.[orient] || selected.src;
     const artClass = [style && `art-${style}`, mood && `mood-${mood}`].filter(Boolean).join(' ');
-    const submission = {
+    setOpsQueue(cur => [{
       id,
       cardholderName: name,
       time: 'just now',
       risk,
       safety: signals?.safetyScore ?? (100 - risk),
-      confidence: computeConfidence(risk),
+      confidence: computeConfidence(risk, signals?.coverage),
       style, mood, color, background,
       flags: buildFlagsFromSignals(signals),
       signals: { ...signals },
       imageUrl,
       art: artClass,
       orientation: orient,
-      regenCount,
+      iterations: { ...iterations },
       decision,
       isUserSubmission: true,
-    };
-    setOpsQueue((cur) => [submission, ...cur]);
+    }, ...cur]);
     showToast('ok', `Submitted for review · Tracking ID: ${id}`);
     resetCustomer();
   };
 
   const onSubmit = () => {
+    if (blocked) {
+      showToast('fail', 'This design was blocked by moderation and cannot be submitted');
+      return;
+    }
     const selected = variations?.[selectedVariation];
     if (!selected || !selected.src) { showToast('fail', 'No variation selected'); return; }
-    if (decision?.code === 'REJECTED') {
-      showToast('fail', 'This design was blocked by AI moderation and cannot be submitted');
+
+    // Re-validate at the point of submission: the name field stays editable
+    // after the review ran, so the checked value and the submitted value are not
+    // guaranteed to be the same.
+    if (nameCheck.empty || nameCheck.severity === 'block') {
+      showToast('fail', firstNameError(nameCheck) || 'Please check the name on the card');
       return;
     }
-    const name = (cardholderName || '').trim().toUpperCase();
-    if (!name) {
-      showToast('fail', 'Please enter the cardholder name first');
-      return;
-    }
+    const name = nameCheck.normalized;
+
     const { style, mood, color, background } = selections;
     const styleStr = [style, mood, color, background].filter(Boolean).join(' · ');
 
@@ -86,46 +95,54 @@ export default function StepResult() {
       ),
       actions: [
         { label: 'Cancel', variant: 'ghost' },
-        {
-          label: 'Confirm & Submit',
-          variant: 'primary',
-          handler: () => submitToOps(selected, name),
-        },
+        { label: 'Confirm & Submit', variant: 'primary', handler: () => submitToOps(selected, name) },
       ],
     });
   };
 
-  const submitDisabled = decision?.code === 'REJECTED';
-  const submitLabel = submitDisabled ? '✕ Submission blocked' : 'Submit for Approval →';
-  const submitHint = submitDisabled
-    ? 'This design was hard-blocked by AI moderation and cannot be submitted to ops.'
-    : `Will be routed as: ${decision.label}. Selected variation #${selectedVariation + 1} will be sent.`;
-
   const riskScore = signals.riskScore;
   const safetyScore = signals.safetyScore;
 
+  // Signal tiles now distinguish "measured clean" from "never measured". The old
+  // grid printed fabricated values (a random NSFW score, a hardcoded resolution)
+  // that always read as passing.
+  const detectorTile = (name, key) => {
+    const d = signals.detectors?.[key];
+    if (!d?.available) return { name, val: NOT_EVALUATED, tone: 'unknown' };
+    return { name, val: `${d.value}`, tone: d.value < 25 ? 'ok' : d.value < 60 ? 'warn' : 'bad' };
+  };
+
   const sigTiles = [
-    { name: 'Prompt Risk',  val: signals.promptRisk + '/100', tone: signals.promptRisk < 25 ? 'ok' : signals.promptRisk < 60 ? 'warn' : 'bad' },
-    { name: 'NSFW Score',   val: signals.nsfw + '%',          tone: signals.nsfw < 5 ? 'ok' : 'warn' },
-    { name: 'Faces',        val: signals.faces,               tone: 'ok' },
-    { name: 'Celebrity',    val: (signals.celebrity * 100).toFixed(0) + '%', tone: signals.celebrity < 0.4 ? 'ok' : signals.celebrity < 0.7 ? 'warn' : 'bad' },
-    { name: 'Logos',        val: signals.logoDetected ? 'Yes' : 'None', tone: signals.logoDetected ? 'bad' : 'ok' },
-    { name: 'OCR Text',     val: signals.textChars + ' chars', tone: 'ok' },
-    { name: 'CLIP Sim',     val: signals.clipSimilarity,       tone: signals.clipSimilarity < 0.3 ? 'ok' : 'warn' },
-    { name: 'User Risk',    val: signals.userRisk,             tone: 'ok' },
-    { name: 'Resolution',   val: signals.resolution,           tone: 'ok' },
+    { name: 'Prompt Risk', val: `${signals.promptRisk}/100`,
+      tone: signals.promptRisk < 25 ? 'ok' : signals.promptRisk < 60 ? 'warn' : 'bad' },
+    { name: 'Name Check', val: signals.nameSeverity === 'ok' ? 'Clean'
+        : signals.nameSeverity === 'review' ? 'Needs review' : 'Blocked',
+      tone: signals.nameSeverity === 'ok' ? 'ok' : signals.nameSeverity === 'review' ? 'warn' : 'bad' },
+    detectorTile('NSFW', 'nsfw'),
+    detectorTile('Celebrity', 'celebrity'),
+    detectorTile('Logos', 'logo'),
+    detectorTile('OCR Text', 'ocrText'),
+    signals.upload
+      ? { name: 'Resolution', val: `${signals.upload.resolution} · ${signals.upload.dpi} DPI`,
+          tone: signals.upload.dpi >= 300 ? 'ok' : 'warn' }
+      : { name: 'Resolution', val: 'No upload', tone: 'unknown' },
+    signals.upload
+      ? { name: 'Sharpness', val: signals.upload.sharpness == null ? NOT_EVALUATED : `${signals.upload.sharpness}`,
+          tone: signals.upload.sharpness == null ? 'unknown' : signals.upload.sharpness > 120 ? 'ok' : 'warn' }
+      : { name: 'Sharpness', val: 'No upload', tone: 'unknown' },
+    { name: 'Fraud Checks', val: signals.fraudEvaluated ? 'Clean' : NOT_EVALUATED, tone: 'unknown' },
   ];
 
   const verdictTitle =
-    decision?.code === 'AUTO_APPROVE'  ? 'Your card is ready!' :
-    decision?.code === 'QUICK_REVIEW'  ? 'Almost there' :
-    decision?.code === 'MANUAL_REVIEW' ? 'Quick review needed' :
-                                         'Design blocked';
+    decision.code === 'AUTO_APPROVE'  ? 'Your card is ready!' :
+    decision.code === 'QUICK_REVIEW'  ? 'Almost there' :
+    decision.code === 'MANUAL_REVIEW' ? 'Quick review needed' :
+                                        'Design blocked';
   const verdictBody =
-    decision?.code === 'AUTO_APPROVE'  ? 'Looking great. Submit when you\'re happy and we\'ll send it to print.' :
-    decision?.code === 'QUICK_REVIEW'  ? 'A quick automatic review will clear this in about 2 minutes.' :
-    decision?.code === 'MANUAL_REVIEW' ? 'A team member will take a quick look. You\'ll hear back within a day.' :
-                                         'This design doesn\'t meet our guidelines. Please try a different look.';
+    decision.code === 'AUTO_APPROVE'  ? "Looking great. Submit when you're happy and we'll send it to print." :
+    decision.code === 'QUICK_REVIEW'  ? 'A quick automatic review will clear this shortly.' :
+    decision.code === 'MANUAL_REVIEW' ? "A team member will take a quick look. You'll hear back within a day." :
+                                        "This design doesn't meet our guidelines. Please go back and try a different look.";
 
   return (
     <>
@@ -133,46 +150,61 @@ export default function StepResult() {
       <p className="muted">{verdictBody}</p>
 
       <div className="result-block">
-        <div className="variations-block">
-          <div className="variations-head">
-            <div>
-              <h3>Choose your favourite</h3>
-              <p className="muted small">Tap one to preview on your card</p>
+        {/* A blocked submission produces no artwork at all — showing placeholder
+            art here would present a compliance block as a finished design. */}
+        {hasArtwork ? (
+          <div className="variations-block">
+            <div className="variations-head">
+              <div>
+                <h3>Choose your favourite</h3>
+                <p className="muted small">Tap one to preview on your card</p>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button className="btn ghost small" onClick={() => generate()}>↻ Try again</button>
+                {iterations.total > 1 && (
+                  <span className="regen-counter">
+                    {iterations.total} attempts
+                  </span>
+                )}
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <button className="btn ghost small" onClick={onRegen}>↻ Try again</button>
-              {regenCount > 0 && (
-                <span className="regen-counter">
-                  {regenCount} retr{regenCount > 1 ? 'ies' : 'y'}
-                </span>
-              )}
+            <div className="variations-grid">
+              {variations.map((v, i) => {
+                const url = v.cache?.[cardOrientation] || v.src;
+                return (
+                  <div
+                    key={i}
+                    className={`variation-thumb ${i === selectedVariation ? 'selected' : ''}`}
+                    style={{ backgroundImage: `url('${url}')` }}
+                    onClick={() => pickVariation(i)}
+                  >
+                    <span className="v-num">{i + 1}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
-          <div className="variations-grid">
-            {variations.map((v, i) => {
-              if (v.failed) {
-                return <div key={i} className="variation-thumb failed"><span className="v-num">{i + 1}</span></div>;
-              }
-              const url = v.cache?.[cardOrientation] || v.src;
-              return (
-                <div
-                  key={i}
-                  className={`variation-thumb ${i === selectedVariation ? 'selected' : ''}`}
-                  style={{ backgroundImage: `url('${url}')` }}
-                  onClick={() => pickVariation(i)}
-                >
-                  <span className="v-num">{i + 1}</span>
-                </div>
-              );
-            })}
+        ) : (
+          <div className="variations-block blocked-note">
+            <h3>No artwork was generated</h3>
+            <p className="muted small">
+              {blocked
+                ? 'The request was stopped before it reached the image service, so nothing was created.'
+                : 'The image service did not return a design. Please try again.'}
+            </p>
           </div>
-        </div>
+        )}
 
         <div className={`decision-card ${decision.tone === 'pass' ? '' : decision.tone}`}>
           <div className="decision-icon">{decision.icon}</div>
           <div>
             <h3>{decision.label}</h3>
             <p className="muted small">{decision.reason}</p>
+            {decision.notes?.length > 0 && (
+              <ul className="decision-notes">
+                {decision.notes.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+            )}
           </div>
         </div>
 
@@ -187,6 +219,37 @@ export default function StepResult() {
               <span>Safety: <strong>{safetyScore}</strong>/100</span>
             </div>
           </div>
+
+          <p className="muted small">
+            Decision enforced by: <strong>{signals.enforcedBy}</strong> · model coverage:{' '}
+            <strong>{signals.coverage ?? 0}%</strong>
+            {signals.unevaluated?.length > 0 && ` · unevaluated: ${signals.unevaluated.join(', ')}`}
+          </p>
+          <p className="muted small">
+            Model moderation:{' '}
+            {signals.moderation?.available ? (
+              <>
+                <strong>{signals.moderation.provider}</strong> · prompt, photo and
+                generated artwork classified
+                {signals.droppedImages > 0 &&
+                  ` · ${signals.droppedImages} generated image(s) discarded by image moderation`}
+              </>
+            ) : signals.moderation?.configured === false ? (
+              <strong style={{ color: 'var(--amber)' }}>
+                not configured — held for human review
+              </strong>
+            ) : (
+              <strong style={{ color: 'var(--amber)' }}>
+                unavailable — held for human review
+              </strong>
+            )}
+          </p>
+          {signals.modelBlocked?.length > 0 && (
+            <p className="muted small" style={{ color: 'var(--red)' }}>
+              Blocked categories: {signals.modelBlocked.join(', ')}
+            </p>
+          )}
+
           <div className="signal-grid">
             {sigTiles.map((x, i) => (
               <div key={i} className={`signal ${x.tone}`}>
@@ -198,11 +261,15 @@ export default function StepResult() {
         </details>
 
         <div className="submit-block">
-          <button className="btn primary full" onClick={onSubmit} disabled={submitDisabled}>
-            {submitDisabled ? '✕ Can\'t submit this design' : 'Submit my design →'}
+          <button className="btn primary full" onClick={onSubmit} disabled={blocked || !hasArtwork}>
+            {blocked ? "✕ Can't submit this design" : 'Submit my design →'}
           </button>
-          <p className="muted small center" style={{ color: submitDisabled ? 'var(--red)' : '' }}>
-            {submitDisabled ? submitHint : `We'll handle the rest. Selected design #${selectedVariation + 1}.`}
+          <p className="muted small center" style={{ color: blocked ? 'var(--red)' : '' }}>
+            {blocked
+              ? 'This design was blocked by moderation and cannot be submitted to ops.'
+              : hasArtwork
+                ? `We'll handle the rest. Selected design #${selectedVariation + 1}.`
+                : 'Nothing to submit yet.'}
           </p>
         </div>
       </div>

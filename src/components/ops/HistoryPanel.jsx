@@ -83,7 +83,12 @@ export default function HistoryPanel() {
                     <span>{decided}</span><span>·</span>
                     <span>Risk {item.risk}/100</span><span>·</span>
                     <span>{item.style || 'mixed'}</span>
-                    {item.regenCount != null && <><span>·</span><span>Regens: {item.regenCount}</span></>}
+                    {(item.iterations?.total ?? item.regenCount) != null && (
+                      <><span>·</span><span>
+                        {item.iterations?.total ?? item.regenCount} attempt
+                        {(item.iterations?.total ?? item.regenCount) === 1 ? '' : 's'}
+                      </span></>
+                    )}
                   </div>
                   {historyTab === 'rejected' && item.reason && (
                     <div className="hist-reason"><strong>Reason:</strong> {item.reason}</div>

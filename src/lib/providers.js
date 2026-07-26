@@ -1,89 +1,39 @@
-import { sanitizePrompt } from './sanitize.js';
+import { evaluateSubmission } from '../../shared/guardrails/index.js';
+import {
+  buildStyleText, buildFullPrompt, buildEditPrompt, sanitizeOrientation,
+} from '../../shared/prompt.js';
+
+// Generation transport.
+//
+// Default path is POST /api/generate, which holds the provider key and makes the
+// binding guardrail decision. The browser no longer talks to a provider and no
+// longer carries a key.
+//
+// The direct-to-provider path is retained for local development where no
+// serverless runtime is running. It is opt-in, it still applies the guardrails
+// locally, and it is unavailable in a production build — a client-side check is
+// bypassable, so it must never be the only check on a deployed site.
+const DIRECT_MODE =
+  import.meta.env.VITE_ALLOW_DIRECT_PROVIDER === 'true' && import.meta.env.DEV;
+
+export const IS_SERVER_ENFORCED = !DIRECT_MODE;
 
 export const PROVIDERS = {
-  pollinations: {
-    label: 'Pollinations.ai',
+  server: {
+    label: 'Server-enforced (Google Gemini)',
     needsKey: false,
-    keyHint: '(no key required)',
+    keyHint: '(key held server-side in GEMINI_API_KEY — never sent to the browser)',
   },
-  gemini: {
-    label: 'Google Gemini · Nano Banana',
-    needsKey: true,
-    keyHint: '(Google AI Studio key — same key works for Gemini 2.5 models)',
-  },
-  dalle: {
-    label: 'OpenAI DALL·E 3',
-    needsKey: true,
-    keyHint: '(OpenAI API key starting with sk-…)',
-  },
-  grok: {
-    label: 'xAI Grok Image',
-    needsKey: true,
-    keyHint: '(xAI API key starting with xai-…)',
-  },
-  stability: {
-    label: 'Stability AI',
-    needsKey: true,
-    keyHint: '(Stability API key starting with sk-…)',
-  },
+  pollinations: { label: 'Pollinations.ai', needsKey: false, keyHint: '(local dev only)' },
+  gemini:       { label: 'Google Gemini · Nano Banana', needsKey: true, keyHint: '(local dev only)' },
+  dalle:        { label: 'OpenAI DALL·E 3', needsKey: true, keyHint: '(local dev only)' },
+  grok:         { label: 'xAI Grok Image', needsKey: true, keyHint: '(local dev only)' },
+  stability:    { label: 'Stability AI', needsKey: true, keyHint: '(local dev only)' },
 };
 
-export function buildFullPrompt(selections, freeText) {
-  const { style, mood, color, background } = selections;
-  const parts = [];
-  if (style)      parts.push(style.replace('-', ' ') + ' style');
-  if (mood)       parts.push(mood + ' mood');
-  if (color)      parts.push(color + ' color palette');
-  if (background) parts.push(background.replace('-', ' ') + ' background');
-  parts.push('luxury credit card artwork, premium design, ultra detailed, 4k');
+const PROVIDER_TIMEOUT_MS = 25000;
 
-  let prompt = parts.join(', ');
-  if (freeText && freeText.trim()) {
-    const sanitized = sanitizePrompt(freeText).sanitized;
-    prompt = sanitized + ', ' + prompt;
-  }
-  return prompt;
-}
-
-export function buildEditPrompt(selections, freeText) {
-  const { style, mood, color, background } = selections;
-  const styleName = style ? style.replace('-', ' ') : 'artistic';
-
-  const fragments = [];
-  fragments.push(`Completely re-render this photograph in ${styleName} art style`);
-  if (mood)       fragments.push(`with a strong ${mood} mood`);
-  if (color)      fragments.push(`using a ${color} color palette`);
-  if (background) fragments.push(`set against a ${background.replace('-', ' ')} background`);
-
-  let prompt =
-    fragments.join(', ') +
-    `. The output MUST look visually and stylistically distinct from the input — apply heavy artistic stylization, redraw the subject from scratch in pure ${styleName} style. ` +
-    `Maintain the subject's pose and identity but transform the entire rendering style, lighting, color and texture. ` +
-    `Frame the result as luxury credit card artwork: premium, ultra-detailed, 16:9 landscape, embosser-friendly composition.`;
-
-  if (freeText && freeText.trim()) {
-    const sanitized = sanitizePrompt(freeText).sanitized;
-    prompt += ' Additional direction: ' + sanitized;
-  }
-  return prompt;
-}
-
-export function buildPreviewPrompt(selections, freeText) {
-  const { style, mood, color, background } = selections;
-  const parts = [];
-  if (style)      parts.push(style.replace('-', ' ') + ' style');
-  if (mood)       parts.push(mood + ' mood');
-  if (color)      parts.push(color + ' palette');
-  if (background) parts.push(background.replace('-', ' ') + ' background');
-  parts.push('high resolution, card friendly composition');
-
-  let prompt = parts.join(', ');
-  if (freeText && freeText.trim()) {
-    prompt += ' · user note: ' + sanitizePrompt(freeText).sanitized;
-  }
-  return prompt;
-}
-
+// ── Uploaded-image preparation ─────────────────────────────────────────────
 export function resizeImageDataURL(dataURL, maxDim = 1024, quality = 0.9) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -92,9 +42,9 @@ export function resizeImageDataURL(dataURL, maxDim = 1024, quality = 0.9) {
       if (width > maxDim || height > maxDim) {
         if (width >= height) {
           height = Math.round(height * (maxDim / width));
-          width  = maxDim;
+          width = maxDim;
         } else {
-          width  = Math.round(width * (maxDim / height));
+          width = Math.round(width * (maxDim / height));
           height = maxDim;
         }
       }
@@ -112,36 +62,10 @@ export function resizeImageDataURL(dataURL, maxDim = 1024, quality = 0.9) {
   });
 }
 
-// Fail fast if a provider hangs — a frozen spinner mid-demo is worse than a
-// clean fallback. Kept generous so slow-but-alive services still succeed.
-const PROVIDER_TIMEOUT_MS = 25000;
-
-async function generatePollinations(prompt, orientation, seedRef) {
-  const safe = prompt.replace(/[^\w ,.\-]/g, '').slice(0, 380);
-  const seed = seedRef.current || Math.floor(Math.random() * 100000);
-  seedRef.current = seed;
-  const [w, h] = orientation === 'vertical' ? [540, 864] : [864, 540];
-  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(safe)}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
-  await new Promise((res, rej) => {
-    const img = new Image();
-    let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      img.src = '';
-      rej(new Error(`Pollinations timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`));
-    }, PROVIDER_TIMEOUT_MS);
-    img.onload = () => { if (!done) { done = true; clearTimeout(timer); res(); } };
-    img.onerror = () => { if (!done) { done = true; clearTimeout(timer); rej(new Error('Pollinations request failed')); } };
-    img.src = url;
-  });
-  return { src: url };
-}
-
-// ── Demo-safe local fallback ────────────────────────────────────────────────
-// Produces premium, on-brand card artwork entirely offline (SVG data URL).
-// Used as a safety net so a live demo never shows an empty/failed card even if
-// every network provider is unreachable. Deterministic per (palette, seed).
+// ── Offline fallback artwork ───────────────────────────────────────────────
+// Only ever used when generation was ALLOWED and the provider itself failed.
+// It must never stand in for a rejected submission — that would render a block
+// as a success.
 const FALLBACK_PALETTES = {
   warm:       { from: '#ff8a5c', to: '#5c1e0c', accent: '#ffd28a' },
   cool:       { from: '#5b8cff', to: '#0d1c40', accent: '#7fe3ff' },
@@ -154,7 +78,7 @@ const FALLBACK_PALETTES = {
 export function buildFallbackArt(selections = {}, orientation = 'horizontal', seed = 1) {
   const pal = FALLBACK_PALETTES[selections.color] || FALLBACK_PALETTES._default;
   const [w, h] = orientation === 'vertical' ? [540, 864] : [864, 540];
-  const angle = (seed % 360);
+  const angle = seed % 360;
   const hx = (seed * 37) % 100;
   const hy = (seed * 53) % 100;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
@@ -180,19 +104,78 @@ export function buildFallbackArt(selections = {}, orientation = 'horizontal', se
   return { src: 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg), fallback: true };
 }
 
-async function generateGemini(prompt, key, inputImage, orientation) {
-  const candidates = [
-    'gemini-2.5-flash-image',
-    'gemini-3.1-flash-image-preview',
-    'gemini-2.5-flash-image-preview',
-  ];
+// ── Server path (default) ──────────────────────────────────────────────────
+async function generateViaServer({
+  selections, freeText, cardholderName, orientation, inputImage, variations, signal,
+}) {
+  const res = await fetch('/api/generate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    // `signal` lets the customer cancel a run in flight; the browser drops the
+    // request and fetch rejects with an AbortError.
+    signal,
+    body: JSON.stringify({
+      selections, freeText, cardholderName, orientation, variations,
+      inputImage: inputImage
+        ? { mimeType: inputImage.mimeType, base64: inputImage.base64 }
+        : null,
+    }),
+  });
 
-  const parts = [];
-  if (inputImage) {
-    parts.push({ inlineData: { mimeType: inputImage.mimeType, data: inputImage.base64 } });
+  let payload;
+  try {
+    payload = await res.json();
+  } catch {
+    throw new Error(`Server returned ${res.status} with an unreadable body`);
   }
-  parts.push({ text: prompt });
 
+  // 422 is the guardrail refusal. It carries the authoritative verdict, so it is
+  // a valid outcome rather than a transport failure.
+  if (res.status === 422) {
+    return { images: [], verdict: payload, refused: true };
+  }
+  if (!res.ok) {
+    const err = new Error(payload?.error || `Server returned ${res.status}`);
+    err.verdict = payload;
+    throw err;
+  }
+  return { images: payload.images || [], verdict: payload, refused: false };
+}
+
+// ── Direct path (local development only) ───────────────────────────────────
+async function generatePollinations(prompt, orientation, seedRef, signal) {
+  const safe = prompt.replace(/[^\w ,.\-]/g, '').slice(0, 380);
+  const seed = seedRef.current || Math.floor(Math.random() * 100000);
+  seedRef.current = seed;
+  const [w, h] = orientation === 'vertical' ? [540, 864] : [864, 540];
+  const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(safe)}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
+  await new Promise((res, rej) => {
+    const img = new Image();
+    let done = false;
+    const finish = (fn, arg) => { if (!done) { done = true; cleanup(); fn(arg); } };
+    const timer = setTimeout(
+      () => finish(rej, new Error(`Pollinations timed out after ${PROVIDER_TIMEOUT_MS / 1000}s`)),
+      PROVIDER_TIMEOUT_MS,
+    );
+    // Cancelling clears src so the browser stops fetching the image.
+    const onAbort = () => { img.src = ''; finish(rej, abortError()); };
+    function cleanup() {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+    }
+    signal?.addEventListener('abort', onAbort);
+    img.onload = () => finish(res);
+    img.onerror = () => finish(rej, new Error('Pollinations request failed'));
+    img.src = url;
+  });
+  return url;
+}
+
+async function generateGeminiDirect(prompt, key, inputImage, orientation, signal) {
+  const models = ['gemini-2.5-flash-image', 'gemini-3.1-flash-image-preview', 'gemini-2.5-flash-image-preview'];
+  const parts = [];
+  if (inputImage) parts.push({ inlineData: { mimeType: inputImage.mimeType, data: inputImage.base64 } });
+  parts.push({ text: prompt });
   const body = {
     contents: [{ parts }],
     generationConfig: {
@@ -200,111 +183,125 @@ async function generateGemini(prompt, key, inputImage, orientation) {
       imageConfig: { aspectRatio: orientation === 'vertical' ? '9:16' : '16:9' },
     },
   };
-
   let lastErr;
-  for (const model of candidates) {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  for (const model of models) {
     try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+          body: JSON.stringify(body),
+          signal,
+        },
+      );
       if (!res.ok) {
-        const errText = await res.text();
-        lastErr = new Error(`${model} → ${res.status}: ${errText.slice(0, 260)}`);
+        lastErr = new Error(`${model} -> ${res.status}`);
         if (res.status === 404 || res.status === 400) continue;
         throw lastErr;
       }
       const data = await res.json();
       const respParts = data?.candidates?.[0]?.content?.parts || [];
       const imgPart = respParts.find(p => p.inlineData || p.inline_data);
-      if (!imgPart) {
-        const textPart = respParts.find(p => p.text);
-        const finishReason = data?.candidates?.[0]?.finishReason;
-        lastErr = new Error(
-          `${model} returned no image. finishReason=${finishReason || 'n/a'}` +
-          (textPart ? ` · text="${textPart.text.slice(0, 160)}"` : ''),
-        );
-        continue;
-      }
+      if (!imgPart) { lastErr = new Error(`${model} returned no image`); continue; }
       const inline = imgPart.inlineData || imgPart.inline_data;
-      console.log('[gemini] generated via', model, inputImage ? '(edit mode)' : '(text-to-image)');
-      return { src: `data:${inline.mimeType || inline.mime_type};base64,${inline.data}` };
+      return `data:${inline.mimeType || inline.mime_type};base64,${inline.data}`;
     } catch (err) {
+      // A cancellation must not be retried against the next model variant.
+      if (err.name === 'AbortError') throw err;
       lastErr = err;
     }
   }
   throw lastErr || new Error('All Gemini model variants failed');
 }
 
-async function generateDalle(prompt, key, orientation) {
-  const res = await fetch('https://api.openai.com/v1/images/generations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-    body: JSON.stringify({
-      model: 'dall-e-3',
-      prompt,
-      size: orientation === 'vertical' ? '1024x1792' : '1792x1024',
-      n: 1,
-    }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`DALL·E ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const url = data?.data?.[0]?.url;
-  if (!url) throw new Error('DALL·E returned no image');
-  return { src: url };
+function abortError() {
+  const err = new Error('Generation cancelled');
+  err.name = 'AbortError';
+  return err;
 }
 
-async function generateGrok(prompt, key) {
-  const res = await fetch('https://api.x.ai/v1/images/generations', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-    body: JSON.stringify({ model: 'grok-2-image', prompt, n: 1 }),
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Grok ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await res.json();
-  const url = data?.data?.[0]?.url;
-  if (!url) throw new Error('Grok returned no image');
-  return { src: url };
-}
-
-async function generateStability(prompt, key, orientation) {
-  const form = new FormData();
-  form.append('prompt', prompt);
-  form.append('output_format', 'jpeg');
-  form.append('aspect_ratio', orientation === 'vertical' ? '9:16' : '16:9');
-  const res = await fetch('https://api.stability.ai/v2beta/stable-image/generate/core', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${key}`, 'Accept': 'image/*' },
-    body: form,
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(`Stability ${res.status}: ${errText.slice(0, 200)}`);
-  }
-  const blob = await res.blob();
-  return { src: URL.createObjectURL(blob) };
-}
-
-export async function callProvider(settings, prompt, inputImage, orientation = 'horizontal', seedRef = { current: null }) {
-  const provider = settings.provider;
-  const key = settings.keys[provider] || '';
+async function generateDirect({
+  settings, selections, safeFreeText, orientation, inputImage, variations, seedRef, signal,
+}) {
+  if (signal?.aborted) throw abortError();
+  const provider = settings.provider === 'server' ? 'pollinations' : settings.provider;
+  const key = settings.keys?.[provider] || '';
   if (PROVIDERS[provider]?.needsKey && !key) {
     throw new Error(`${PROVIDERS[provider].label} requires an API key. Configure it in the Ops Dashboard.`);
   }
-  switch (provider) {
-    case 'gemini':       return generateGemini(prompt, key, inputImage, orientation);
-    case 'dalle':        return generateDalle(prompt, key, orientation);
-    case 'grok':         return generateGrok(prompt, key);
-    case 'stability':    return generateStability(prompt, key, orientation);
-    case 'pollinations':
-    default:             return generatePollinations(prompt, orientation, seedRef);
+  const prompt = inputImage
+    ? buildEditPrompt(selections, safeFreeText)
+    : buildFullPrompt(selections, safeFreeText);
+
+  const one = async () => {
+    if (signal?.aborted) throw abortError();
+    if (provider === 'gemini') return generateGeminiDirect(prompt, key, inputImage, orientation, signal);
+    return generatePollinations(prompt, orientation, seedRef, signal);
+  };
+
+  const settled = await Promise.all(
+    Array.from({ length: variations }, () => one().then(
+      src => ({ ok: true, src }),
+      err => ({ ok: false, error: err.message }),
+    )),
+  );
+  return {
+    images: settled.filter(r => r.ok).map(r => r.src),
+    errors: settled.filter(r => !r.ok).map(r => r.error),
+    prompt,
+  };
+}
+
+/**
+ * Request generation.
+ *
+ * @returns {{
+ *   images: string[], verdict: object, refused: boolean,
+ *   enforcedBy: 'server'|'client', errors?: string[]
+ * }}
+ */
+export async function requestGeneration({
+  settings, selections, freeText, cardholderName, orientation, inputImage,
+  variations = 3, seedRef = { current: null }, signal,
+}) {
+  const orient = sanitizeOrientation(orientation);
+
+  if (!DIRECT_MODE) {
+    const out = await generateViaServer({
+      selections, freeText, cardholderName, orientation: orient,
+      inputImage, variations, signal,
+    });
+    return { ...out, enforcedBy: 'server' };
   }
+
+  // Direct mode still runs the guardrails; it just cannot prove it did.
+  const verdict = evaluateSubmission({
+    freeText,
+    styleText: buildStyleText(selections),
+    cardholderName,
+    hasUpload: !!inputImage,
+    detectors: {
+      nsfw: { available: false, value: null },
+      celebrity: { available: false, value: null },
+      logo: { available: false, value: null },
+      ocrText: { available: false, value: null },
+    },
+  });
+
+  if (!verdict.allowGeneration) {
+    return { images: [], verdict, refused: true, enforcedBy: 'client' };
+  }
+
+  const out = await generateDirect({
+    settings, selections, safeFreeText: verdict.safeFreeText,
+    orientation: orient, inputImage, variations, seedRef,
+  });
+  return {
+    images: out.images,
+    errors: out.errors,
+    verdict: { ...verdict, prompt: out.prompt },
+    refused: false,
+    enforcedBy: 'client',
+  };
 }
