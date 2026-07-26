@@ -19,7 +19,7 @@ the moderation bar is deliberately higher than for general web content.
 ```bash
 npm install
 npm run dev            # http://localhost:5173
-npm test               # 65 tests, no watch mode
+npm test               # 84 tests, no watch mode
 npm run build          # production build to dist/
 ```
 
@@ -130,7 +130,7 @@ reports **"Not evaluated"**, never "Passed".
 | L0 | Prompt Intelligence | ✅ | Blocklist + classifier on the prompt; redacts every hit before dispatch |
 | L1 | Cardholder Name | ✅ | Profanity/slurs, embosser charset, structural checks |
 | L2 | Upload Guardrails | ✅ | Real pixel dimensions, effective DPI, Laplacian sharpness |
-| L3 | Image Analysis | ✅ | Classifier on the uploaded photo **and** each generated design |
+| L3 | Image Analysis | ✅ | Classifier on the uploaded photo **and** each generated design; also scores prompt fidelity and print readiness |
 | L4 | Risk Scoring Engine | ✅ | Weighted aggregation over *evaluated* signals |
 | L5 | Auto Approval | ✅ | Server-enforced routing decision |
 | L6 | Fraud Detection | ⬜ | Not implemented — needs pHash + durable storage |
@@ -172,6 +172,43 @@ If moderation times out, submissions route to **human review** — never
 auto-approved (that would ship unmoderated artwork), never rejected (that would
 tell a customer they violated policy when nothing actually checked). Google's own
 safety filter refusing to classify is treated as a *positive* signal, not an outage.
+
+---
+
+## Output quality & prompt fidelity
+
+Artwork is printed at **1713×1080 @ 600 DPI** (ISO/IEC 7810 ID-1). Three things
+keep the output print-worthy:
+
+**Native resolution.** Generation requests `imageSize: 2K`, falling back when a
+model variant rejects the field. `shared/imageMeta.js` reads real dimensions from
+the file header server-side and reports native resolution, upscale factor and
+effective DPI. This matters because `composeEmbosserReadyArtwork` draws onto the
+card canvas with `drawImageCover`, which will happily stretch a smaller image — it
+looks fine in a browser preview and prints soft. An unmeasurable image is reported
+as such, never assumed fine.
+
+**Emboss-aware prompting.** Directives derived from the actual template zones: no
+rendered text (it collides with the embossed number and name), and keep the lower
+third and upper-left corner calm for the number, name and chip. The customer's own
+words lead the prompt, because image models weight early tokens most heavily and
+burying the request behind boilerplate is what makes output drift.
+
+**Fidelity scoring.** The output-image classifier also scores, in the *same* vision
+call so it costs no extra request:
+
+| Score | Meaning |
+|---|---|
+| `prompt_match` | How faithfully the render realises the request |
+| `visual_quality` | Sharpness, artefacts, gradient banding |
+| `text_free` | Absence of rendered letters/numbers |
+| `emboss_safe` | Clearance under the emboss zones |
+
+Variations are ranked **best-match-first**, so the selected thumbnail is the
+closest to the description rather than an arbitrary one. The customer sees a
+"Match to your description" readout naming the specific element the model says is
+missing. Fidelity is weighted heaviest in the overall score — a beautiful image of
+the wrong thing is not a good result.
 
 ---
 
@@ -360,6 +397,30 @@ with `iterations: { total, horizontal, vertical }`.
 Back on every page (step 3 previously hid all controls), true run cancellation via
 `AbortController`, full state preservation on back-navigation, and back → edit
 prompt → re-run.
+
+#### Shared ops queue backend
+
+The queue lived in React state: every visitor had their own copy and a reload wiped
+it. Now `api/submissions.js` over a Redis hash (Upstash HTTP REST), with a
+**signed-verdict trust boundary** — the browser sends presentation data but not the
+verdict, so a tampered client cannot post rejected artwork as approved. Header
+stats ("87% auto-approved", "4.2s latency") were hardcoded; they are computed from
+real data now, or show "—".
+
+#### Output quality & prompt fidelity
+
+`imageSize: 2K` requests, server-side resolution measurement against the embosser
+minimum, emboss-aware prompt directives, and prompt-fidelity scoring folded into
+the existing vision call. See the section above.
+
+#### Edge cases found by sweeping the live endpoints
+
+- **Spaced-letter bypass.** `"a g u n on the card"` de-interspersed to `"agun"`,
+  where `\bgun\b` cannot match, so it passed. Only affected terms under four
+  characters. Both readings of a spaced run are now tested, with no new false
+  positives on initials or abbreviations.
+- **Malformed JSON returned 500.** On Vercel `req.body` is a lazy getter that
+  throws on a bad payload; reading it escaped to the outer catch. Now a 400.
 
 #### Breaking changes
 
