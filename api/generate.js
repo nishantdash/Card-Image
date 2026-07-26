@@ -31,6 +31,7 @@ import {
   moderationConfig, moderateText, moderateImage, moderateImages,
 } from './_moderation.js';
 import { signVerdict } from './_verdict.js';
+import { assessEmbosserFit } from '../shared/imageMeta.js';
 
 const MAX_VARIATIONS = 4;
 const MAX_FREETEXT = 500;
@@ -65,6 +66,12 @@ const GEMINI_IMAGE_MODELS = [
   'gemini-2.5-flash-image-preview',
 ];
 
+// Card artwork is printed at 1713x1080 @ 600 DPI, so a default-resolution
+// generation would be upscaled by the compositor and print soft. Ask for the
+// largest size the model supports and fall back if it rejects the field — not
+// every model variant accepts imageSize.
+const IMAGE_SIZE_ATTEMPTS = ['2K', null];
+
 async function generateGemini({ prompt, key, inputImage, orientation }) {
   const parts = [];
   if (inputImage) {
@@ -72,16 +79,21 @@ async function generateGemini({ prompt, key, inputImage, orientation }) {
   }
   parts.push({ text: prompt });
 
-  const body = {
+  const bodyFor = (imageSize) => ({
     contents: [{ parts }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
-      imageConfig: { aspectRatio: orientation === 'vertical' ? '9:16' : '16:9' },
+      imageConfig: {
+        aspectRatio: orientation === 'vertical' ? '9:16' : '16:9',
+        ...(imageSize ? { imageSize } : {}),
+      },
     },
-  };
+  });
 
   let lastErr;
   for (const model of GEMINI_IMAGE_MODELS) {
+   for (const imageSize of IMAGE_SIZE_ATTEMPTS) {
+    const body = bodyFor(imageSize);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
     try {
@@ -98,8 +110,10 @@ async function generateGemini({ prompt, key, inputImage, orientation }) {
       );
       if (!res.ok) {
         const errText = await res.text();
-        lastErr = new Error(`${model} -> ${res.status}: ${errText.slice(0, 200)}`);
-        if (res.status === 404 || res.status === 400) continue;
+        lastErr = new Error(`${model}${imageSize ? `/${imageSize}` : ''} -> ${res.status}: ${errText.slice(0, 200)}`);
+        // A 400 mentioning the size field means retry this model without it.
+        if (res.status === 400 && imageSize && /imageSize|image_size|imageConfig/i.test(errText)) continue;
+        if (res.status === 404 || res.status === 400) break;
         throw lastErr;
       }
       const data = await res.json();
@@ -112,12 +126,19 @@ async function generateGemini({ prompt, key, inputImage, orientation }) {
         continue;
       }
       const inline = imgPart.inlineData || imgPart.inline_data;
-      return { src: `data:${inline.mimeType || inline.mime_type};base64,${inline.data}`, model };
+      return {
+        src: `data:${inline.mimeType || inline.mime_type};base64,${inline.data}`,
+        model,
+        imageSize: imageSize || 'default',
+      };
     } catch (err) {
+      if (err.name === 'AbortError') throw err;
       lastErr = err;
+      break; // move to the next model rather than retrying the same one
     } finally {
       clearTimeout(timer);
     }
+   }
   }
   throw lastErr || new Error('All Gemini image model variants failed');
 }
@@ -278,16 +299,52 @@ export default async function handler(req, res) {
   let outputVerdicts = [];
   let images = produced;
   let droppedImages = 0;
+  let quality = null;
 
   if (produced.length && cfg.configured && cfg.moderateOutputImages) {
-    outputVerdicts = await moderateImages(produced, cfg);
-    images = produced.filter((_, i) => {
-      const v = outputVerdicts[i];
+    // The customer's own words are handed to the classifier so the same call also
+    // scores how faithfully each render matches what they asked for.
+    const request = [preGen.safeFreeText, styleText].filter(Boolean).join('. ');
+    outputVerdicts = await moderateImages(produced, cfg, { request });
+
+    // Keep artwork paired with its verdict while filtering and ranking.
+    const kept = produced
+      .map((src, i) => ({ src, v: outputVerdicts[i] }))
       // Unavailable (an outage) is not a block — it degrades the decision below
       // instead of discarding artwork we simply failed to inspect.
-      return !(v?.available && v.blocked.length > 0);
-    });
-    droppedImages = produced.length - images.length;
+      .filter(({ v }) => !(v?.available && v.blocked.length > 0));
+
+    droppedImages = produced.length - kept.length;
+
+    // Best match first, so the variation the customer sees selected is the one
+    // closest to their description rather than an arbitrary one.
+    kept.sort((a, b) => (b.v?.quality?.overall ?? 0) - (a.v?.quality?.overall ?? 0));
+    images = kept.map(k => k.src);
+    outputVerdicts = kept.map(k => k.v);
+
+    const best = kept[0]?.v;
+    if (best?.quality?.available) {
+      quality = {
+        promptMatch: best.quality.scores.prompt_match,
+        visualQuality: best.quality.scores.visual_quality,
+        textFree: best.quality.scores.text_free,
+        embossSafe: best.quality.scores.emboss_safe,
+        overall: best.quality.overall,
+        warnings: best.quality.warnings,
+        failures: best.quality.failures,
+        missing: best.quality.missing,
+        embosserReady: best.quality.embosserReady && best.embosser?.meetsEmbosserMinimum !== false,
+        // Ranked per variation so the UI can label each thumbnail.
+        perVariation: kept.map(k => k.v?.quality?.overall ?? null),
+      };
+    }
+    if (best?.embosser) {
+      quality = { ...(quality || {}), resolution: best.embosser };
+    }
+  } else if (produced.length) {
+    // Resolution is measurable without a classifier.
+    const fit = assessEmbosserFit(produced[0]);
+    if (fit.measured) quality = { resolution: fit };
   }
 
   const finalModel = mergeModelVerdicts(
@@ -325,6 +382,7 @@ export default async function handler(req, res) {
       Math.min(100, Math.abs(50 - finalVerdict.riskScore) * 2) * (finalVerdict.coverage / 100),
     ),
     flags: buildFlags(finalVerdict),
+    quality,
     moderation: {
       provider: cfg.provider,
       available: finalVerdict.moderationAvailable,
@@ -346,6 +404,7 @@ export default async function handler(req, res) {
       unevaluated: finalVerdict.unevaluated,
       enforcedBy: 'server',
       fraudEvaluated: false,
+      quality,
     },
   });
 
@@ -353,6 +412,8 @@ export default async function handler(req, res) {
     ...publicVerdict(finalVerdict, cfg, { droppedImages }),
     images,
     verdictToken,
+    // Prompt fidelity + print readiness for the selected variation.
+    quality,
     requested: variations,
     // The prompt actually sent, post-redaction — useful for the ops audit trail
     // and safe to expose because every blocklist hit has been removed.

@@ -110,6 +110,7 @@ export default function StepResult() {
 
   const riskScore = signals.riskScore;
   const safetyScore = signals.safetyScore;
+  const q = signals.quality;
 
   // Signal tiles now distinguish "measured clean" from "never measured". The old
   // grid printed fabricated values (a random NSFW score, a hardcoded resolution)
@@ -139,6 +140,18 @@ export default function StepResult() {
           tone: signals.upload.sharpness == null ? 'unknown' : signals.upload.sharpness > 120 ? 'ok' : 'warn' }
       : { name: 'Sharpness', val: 'No upload', tone: 'unknown' },
     { name: 'Fraud Checks', val: signals.fraudEvaluated ? 'Clean' : NOT_EVALUATED, tone: 'unknown' },
+    q?.promptMatch != null
+      ? { name: 'Prompt Match', val: `${q.promptMatch}%`,
+          tone: q.promptMatch >= 60 ? 'ok' : q.promptMatch >= 35 ? 'warn' : 'bad' }
+      : { name: 'Prompt Match', val: NOT_EVALUATED, tone: 'unknown' },
+    q?.resolution?.measured
+      ? { name: 'Output Size', val: `${q.resolution.resolution} · ${q.resolution.effectiveDpi} DPI`,
+          tone: q.resolution.meetsEmbosserMinimum ? 'ok' : 'warn' }
+      : { name: 'Output Size', val: NOT_EVALUATED, tone: 'unknown' },
+    q?.visualQuality != null
+      ? { name: 'Print Quality', val: `${q.visualQuality}%`,
+          tone: q.visualQuality >= 60 ? 'ok' : 'warn' }
+      : { name: 'Print Quality', val: NOT_EVALUATED, tone: 'unknown' },
   ];
 
   const verdictTitle =
@@ -200,6 +213,37 @@ export default function StepResult() {
                 ? 'The request was stopped before it reached the image service, so nothing was created.'
                 : 'The image service did not return a design. Please try again.'}
             </p>
+          </div>
+        )}
+
+        {/* Prompt fidelity, in the customer's language. A render that drifted
+            from what they described is the most common reason to try again, and
+            previously nothing told them. */}
+        {hasArtwork && q?.promptMatch != null && (
+          <div className={`fidelity-card ${q.promptMatch >= 60 ? 'ok' : q.promptMatch >= 35 ? 'warn' : 'bad'}`}>
+            <div className="fidelity-head">
+              <span className="fidelity-label">Match to your description</span>
+              <strong className="fidelity-score">{q.promptMatch}%</strong>
+            </div>
+            <div className="fidelity-bar">
+              <div className="fidelity-fill" style={{ width: `${q.promptMatch}%` }}></div>
+            </div>
+            <p className="muted small">
+              {q.promptMatch >= 75
+                ? 'This closely matches what you asked for.'
+                : q.promptMatch >= 60
+                  ? 'A good match. Try again if you had something more specific in mind.'
+                  : q.missing
+                    ? `Might be missing: ${q.missing}. Try again, or add more detail to your description.`
+                    : 'This may not match your description closely. Try again, or add more detail.'}
+            </p>
+            {q.embosserReady === false && (
+              <p className="muted small" style={{ color: 'var(--amber)' }}>
+                ⚠ Print check: {q.resolution?.measured && !q.resolution.meetsEmbosserMinimum
+                  ? q.resolution.note
+                  : 'this design may need adjustment before printing.'}
+              </p>
+            )}
           </div>
         )}
 

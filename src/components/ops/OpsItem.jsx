@@ -47,6 +47,18 @@ function signalRows(signals, cohortApproval, styleLabel) {
     detectorRow('Image Quality', signals, 'imageQuality'),
     { name: 'Fraud Checks', val: signals.fraudEvaluated ? 'Clean' : NOT_EVALUATED,
       tone: signals.fraudEvaluated ? 'ok' : 'unknown' },
+    signals.quality?.promptMatch != null
+      ? { name: 'Prompt Match', val: `${signals.quality.promptMatch}%`,
+          tone: signals.quality.promptMatch >= 60 ? 'ok' : signals.quality.promptMatch >= 35 ? 'warn' : 'bad' }
+      : { name: 'Prompt Match', val: NOT_EVALUATED, tone: 'unknown' },
+    signals.quality?.resolution?.measured
+      ? { name: 'Output Size', val: `${signals.quality.resolution.resolution} · ${signals.quality.resolution.effectiveDpi} DPI`,
+          tone: signals.quality.resolution.meetsEmbosserMinimum ? 'ok' : 'warn' }
+      : { name: 'Output Size', val: NOT_EVALUATED, tone: 'unknown' },
+    signals.quality?.embosserReady != null
+      ? { name: 'Embosser Ready', val: signals.quality.embosserReady ? 'Yes' : 'Needs check',
+          tone: signals.quality.embosserReady ? 'ok' : 'warn' }
+      : { name: 'Embosser Ready', val: NOT_EVALUATED, tone: 'unknown' },
     { name: 'Model Coverage', val: `${signals.coverage ?? 0}%`,
       tone: (signals.coverage ?? 0) >= 90 ? 'ok' : (signals.coverage ?? 0) >= 60 ? 'warn' : 'bad' },
     { name: 'Enforced By', val: signals.enforcedBy || 'unknown',

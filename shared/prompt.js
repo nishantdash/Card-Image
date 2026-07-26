@@ -33,6 +33,28 @@ export function sanitizeOrientation(raw) {
 
 const words = (v) => String(v).replace(/-/g, ' ');
 
+// Print/emboss directives appended to every generation.
+//
+// Derived from BANK_REGISTRY.AU_BANK.templates.front: the chip cutout sits in the
+// upper-left, and the card number and cardholder name occupy the lower band. The
+// compositor draws artwork underneath those, so busy or high-contrast detail there
+// makes the embossed characters unreadable.
+//
+// "No text" matters twice over: rendered lettering collides with the embossed
+// name/number, and an image full of words trips the text_in_image detector.
+const EMBOSSER_DIRECTIVES = [
+  'ultra high resolution, maximum detail, professional print quality, 600 DPI suitable',
+  'absolutely no text, no letters, no numbers, no logos, no watermarks, no signatures anywhere in the image',
+  'keep the lower third and the upper-left corner visually calm, smooth and low-contrast, leaving clear space for the embossed card number, cardholder name and chip',
+  'rich saturated print-safe colours, smooth gradients without banding, crisp edges, no visual noise or compression artefacts',
+  'full-bleed edge-to-edge composition with no borders or frames',
+].join(', ');
+
+/** Quality/emboss suffix. Kept separate so tests can assert on it. */
+export function embosserSuffix() {
+  return EMBOSSER_DIRECTIVES;
+}
+
 /** Human-readable fragment describing the selections. Also what gets scanned. */
 export function buildStyleText(selections) {
   const s = sanitizeSelections(selections);
@@ -44,14 +66,23 @@ export function buildStyleText(selections) {
   return parts.join(', ');
 }
 
-/** Text-to-image prompt. `safeFreeText` must already be redacted. */
+/**
+ * Text-to-image prompt. `safeFreeText` must already be redacted.
+ *
+ * The customer's own words go FIRST. Image models weight early tokens more
+ * heavily, and burying the actual request behind boilerplate is what makes output
+ * drift away from what the customer asked for.
+ */
 export function buildFullPrompt(selections, safeFreeText = '') {
+  const subject = safeFreeText?.trim();
   const base = buildStyleText(selections);
-  const parts = [base, 'luxury credit card artwork, premium design, ultra detailed, 4k']
-    .filter(Boolean);
-  let prompt = parts.join(', ');
-  if (safeFreeText && safeFreeText.trim()) prompt = `${safeFreeText.trim()}, ${prompt}`;
-  return prompt;
+  const parts = [
+    subject,
+    base,
+    'luxury premium credit card artwork',
+    EMBOSSER_DIRECTIVES,
+  ].filter(Boolean);
+  return parts.join(', ');
 }
 
 /** Image-to-image prompt. `safeFreeText` must already be redacted. */
@@ -67,12 +98,13 @@ export function buildEditPrompt(selections, safeFreeText = '') {
   let prompt =
     fragments.join(', ') +
     `. The output MUST look visually and stylistically distinct from the input — apply heavy artistic stylization, redraw the subject from scratch in pure ${styleName} style. ` +
-    `Maintain the subject's pose and identity but transform the entire rendering style, lighting, color and texture. ` +
-    `Frame the result as luxury credit card artwork: premium, ultra-detailed, embosser-friendly composition.`;
+    `Maintain the subject's pose and identity but transform the entire rendering style, lighting, color and texture.`;
 
+  // Customer direction before the boilerplate, for the same reason as above.
   if (safeFreeText && safeFreeText.trim()) {
-    prompt += ` Additional direction: ${safeFreeText.trim()}`;
+    prompt += ` Follow this direction closely: ${safeFreeText.trim()}.`;
   }
+  prompt += ` Frame the result as luxury premium credit card artwork. ${EMBOSSER_DIRECTIVES}.`;
   return prompt;
 }
 

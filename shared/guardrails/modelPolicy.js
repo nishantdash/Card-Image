@@ -37,6 +37,89 @@ export const MODEL_CATEGORIES = {
 
 export const MODEL_CATEGORY_KEYS = Object.keys(MODEL_CATEGORIES);
 
+// ── Image quality / fidelity ───────────────────────────────────────────────
+// Scored in the SAME vision call as moderation, so fidelity costs no extra
+// request. Separate from the harm categories because these are not policy
+// violations — they decide which variation to show and whether to warn the
+// customer that the render drifted from what they asked for.
+export const IMAGE_QUALITY = {
+  // How well the image realises the customer's actual request.
+  prompt_match:   { label: 'Matches your description', warn: 60, fail: 35 },
+  // Print suitability: sharpness, absence of artefacts, clean gradients.
+  visual_quality: { label: 'Print quality',            warn: 60, fail: 35 },
+  // Legible lettering collides with the embossed name/number.
+  text_free:      { label: 'Free of rendered text',    warn: 70, fail: 40 },
+  // Busy, high-contrast detail under the emboss zones hurts readability.
+  emboss_safe:    { label: 'Emboss-zone clearance',    warn: 60, fail: 35 },
+};
+
+export const IMAGE_QUALITY_KEYS = Object.keys(IMAGE_QUALITY);
+
+/** Schema for an image assessment: harm categories plus quality/fidelity. */
+export function buildImageVerdictSchema() {
+  const base = buildVerdictSchema();
+  return {
+    type: 'object',
+    properties: {
+      ...base.properties,
+      quality: {
+        type: 'object',
+        properties: Object.fromEntries(
+          IMAGE_QUALITY_KEYS.map(k => [k, { type: 'integer' }]),
+        ),
+        required: IMAGE_QUALITY_KEYS,
+      },
+      missing: { type: 'string' },
+    },
+    required: [...base.required],
+  };
+}
+
+/**
+ * Interpret the quality half of an image verdict.
+ * Higher is better for every key here — the inverse of the harm categories.
+ */
+export function applyImageQuality(raw) {
+  const scores = {};
+  for (const key of IMAGE_QUALITY_KEYS) {
+    scores[key] = clamp100(raw?.quality?.[key]);
+  }
+
+  const warnings = [];
+  const failures = [];
+  for (const [key, limits] of Object.entries(IMAGE_QUALITY)) {
+    if (scores[key] <= limits.fail) failures.push(key);
+    else if (scores[key] <= limits.warn) warnings.push(key);
+  }
+
+  // Overall usability, weighted toward whether it actually matches the request —
+  // a beautiful image of the wrong thing is not a good result.
+  const overall = Math.round(
+    scores.prompt_match * 0.45 +
+    scores.visual_quality * 0.25 +
+    scores.text_free * 0.15 +
+    scores.emboss_safe * 0.15,
+  );
+
+  return {
+    available: true,
+    scores,
+    overall,
+    warnings,
+    failures,
+    // What the model says is absent or wrong relative to the request.
+    missing: typeof raw?.missing === 'string' ? raw.missing.slice(0, 240) : '',
+    embosserReady: failures.length === 0 && scores.emboss_safe > IMAGE_QUALITY.emboss_safe.warn,
+  };
+}
+
+export function unavailableImageQuality() {
+  return {
+    available: false, scores: {}, overall: null, warnings: [], failures: [],
+    missing: '', embosserReady: null,
+  };
+}
+
 /** JSON schema handed to the model so the verdict is machine-checkable. */
 export function buildVerdictSchema() {
   return {

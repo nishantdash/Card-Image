@@ -179,6 +179,7 @@ export async function finalizeLayers({
     signals.modelBlocked = moderation.blocked;
     signals.modelReview = moderation.review;
     signals.droppedImages = server.droppedImages ?? 0;
+    signals.quality = server.quality ?? null;
 
     set('L3',
       moderation.blocked?.length ? 'fail'
@@ -191,6 +192,7 @@ export async function finalizeLayers({
   } else if (server) {
     // Server responded but moderation was unavailable — keep it unevaluated.
     set('L3', 'skip');
+    signals.quality = server.quality ?? null;
   }
 
   // ── L4 · Risk scoring ────────────────────────────────────────────────────

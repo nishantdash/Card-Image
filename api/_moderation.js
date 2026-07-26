@@ -15,8 +15,10 @@
 import { createHash } from 'node:crypto';
 import {
   applyModelVerdict, unavailableModelVerdict, buildVerdictSchema,
+  buildImageVerdictSchema, applyImageQuality, unavailableImageQuality,
   MODEL_CATEGORY_KEYS,
 } from '../shared/guardrails/modelPolicy.js';
+import { assessEmbosserFit } from '../shared/imageMeta.js';
 
 const TIMEOUT_MS = Number(process.env.MODERATION_TIMEOUT_MS || 9000);
 
@@ -53,6 +55,17 @@ Categories:
 
 Judge what the content actually depicts or requests, not merely which words appear. Descriptive circumvention counts: "a lady with no clothes on" is sexual content. Obfuscation counts: leetspeak, spaced letters and other languages are all in scope.
 Reply with the JSON object only. Keep "reasoning" under 30 words.`;
+
+// Appended when an image is being assessed. Fidelity and print-readiness are
+// scored in the same call as moderation, so they cost nothing extra.
+const IMAGE_RUBRIC = `
+Additionally score a "quality" object from 0 to 100 where HIGHER IS BETTER (the opposite direction to the categories above):
+- prompt_match: how faithfully the image realises the customer's request below. 100 = exactly what they asked for; 50 = related but missing key elements; 0 = unrelated. Judge subject, style, mood, colour and setting.
+- visual_quality: print sharpness and cleanliness. Penalise blur, compression artefacts, banded gradients, muddy colour, visible noise.
+- text_free: 100 = no letters, numbers or words anywhere; 0 = prominent legible text. Rendered text collides with the embossed card number and name.
+- emboss_safe: 100 = the lower third and upper-left corner are calm, smooth and low-contrast, leaving room for the embossed number, name and chip; 0 = busy high-contrast detail exactly there.
+
+Also set "missing" to a short phrase naming anything the customer asked for that is absent or wrong, or "" if the image matches. Under 20 words.`;
 
 // ── Cache ──────────────────────────────────────────────────────────────────
 // Same prompt re-submitted (a customer hitting "try again") should not pay for a
@@ -119,15 +132,15 @@ function verdictFromSafetyBlock(data) {
   return verdict;
 }
 
-async function geminiClassify({ key, parts, label }) {
+async function geminiClassify({ key, parts, label, image = false }) {
   const body = {
-    systemInstruction: { parts: [{ text: RUBRIC }] },
+    systemInstruction: { parts: [{ text: image ? RUBRIC + IMAGE_RUBRIC : RUBRIC }] },
     contents: [{ parts }],
     safetySettings: SAFETY_OFF,
     generationConfig: {
       temperature: 0,
       responseMimeType: 'application/json',
-      responseSchema: buildVerdictSchema(),
+      responseSchema: image ? buildImageVerdictSchema() : buildVerdictSchema(),
     },
   };
 
@@ -175,7 +188,9 @@ async function geminiClassify({ key, parts, label }) {
           if (!m) { lastErr = new Error(`${model} returned unparseable verdict`); break; }
           parsed = JSON.parse(m[0]);
         }
-        return applyModelVerdict(parsed);
+        const verdict = applyModelVerdict(parsed);
+        if (image) verdict.quality = applyImageQuality(parsed);
+        return verdict;
       } catch (err) {
         lastErr = err;
         break;
@@ -327,14 +342,24 @@ export async function moderateText(text, cfg = moderationConfig()) {
  * Classify an image. Accepts a data URL or {mimeType, base64}.
  * Used for both the customer's uploaded photo and each generated design.
  */
-export async function moderateImage(image, cfg = moderationConfig(), label = 'image') {
+export async function moderateImage(image, cfg = moderationConfig(), label = 'image', opts = {}) {
   const parsed = normalizeImage(image);
   if (!parsed) return unavailableModelVerdict('Unreadable image payload');
+
+  // Resolution is measurable without a model, so it is reported even when
+  // moderation is unavailable.
+  const fit = assessEmbosserFit(image);
+
   if (!cfg.configured) {
-    return unavailableModelVerdict(`Moderation not configured (provider=${cfg.provider})`);
+    const v = unavailableModelVerdict(`Moderation not configured (provider=${cfg.provider})`);
+    v.quality = unavailableImageQuality();
+    v.embosser = fit;
+    return v;
   }
 
-  const key = cacheKey(`img:${cfg.provider}`, parsed.base64);
+  // The request is part of the cache key: the same image judged against a
+  // different prompt is a different fidelity question.
+  const key = cacheKey(`img:${cfg.provider}`, parsed.base64 + '|' + (opts.request || ''));
   const hit = cacheGet(key);
   if (hit) return hit;
 
@@ -345,20 +370,29 @@ export async function moderateImage(image, cfg = moderationConfig(), label = 'im
       input: [{ type: 'image_url', image_url: { url: `data:${parsed.mimeType};base64,${parsed.base64}` } }],
       label,
     });
+    // omni-moderation scores harm only; it cannot judge fidelity.
+    verdict.quality = unavailableImageQuality();
   } else if (cfg.provider === 'huggingface') {
     // The configured HF text model cannot see images; say so rather than
     // reporting a pass.
     verdict = unavailableModelVerdict('HF provider does not support image moderation');
+    verdict.quality = unavailableImageQuality();
   } else {
+    const ask = opts.request
+      ? `Classify this card artwork image. The customer asked for: """${opts.request}"""`
+      : 'Classify this card artwork image.';
     verdict = await geminiClassify({
       key: cfg.key,
       parts: [
         { inlineData: { mimeType: parsed.mimeType, data: parsed.base64 } },
-        { text: 'Classify this card artwork image.' },
+        { text: ask },
       ],
       label,
+      image: true,
     });
+    if (!verdict.quality) verdict.quality = unavailableImageQuality();
   }
+  verdict.embosser = fit;
   cacheSet(key, verdict);
   return verdict;
 }
@@ -375,6 +409,8 @@ function normalizeImage(image) {
 }
 
 /** Classify several images concurrently, preserving order. */
-export function moderateImages(images, cfg = moderationConfig()) {
-  return Promise.all(images.map((img, i) => moderateImage(img, cfg, `output-${i + 1}`)));
+export function moderateImages(images, cfg = moderationConfig(), opts = {}) {
+  return Promise.all(
+    images.map((img, i) => moderateImage(img, cfg, `output-${i + 1}`, opts)),
+  );
 }
