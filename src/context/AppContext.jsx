@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { loadSettings, saveSettings } from '../lib/settings.js';
-import { INITIAL_OPS_QUEUE } from '../lib/opsMocks.js';
+import { fetchQueue } from '../lib/opsApi.js';
 
 const AppContext = createContext(null);
 
@@ -46,9 +46,35 @@ export function AppProvider({ children }) {
   const hasGeneratedRef = useRef(false);
   const seedRef = useRef(null);
 
-  // --- Ops state ---
-  const [opsQueue, setOpsQueue] = useState(INITIAL_OPS_QUEUE);
+  // Signed verdict from /api/generate. Required to submit — the server will not
+  // take the browser's word on a moderation decision.
+  const [verdictToken, setVerdictToken] = useState(null);
+
+  // --- Ops state (server-backed) ---
+  const [opsQueue, setOpsQueue] = useState([]);
   const [opsHistory, setOpsHistory] = useState({ approved: [], rejected: [] });
+  const [opsLoading, setOpsLoading] = useState(true);
+  const [opsError, setOpsError] = useState(null);
+  const [opsStorage, setOpsStorage] = useState(null); // 'kv' | 'memory' | null
+  const [opsStats, setOpsStats] = useState(null);
+
+  const refreshQueue = useCallback(async () => {
+    setOpsError(null);
+    try {
+      const data = await fetchQueue();
+      setOpsQueue(data.queue || []);
+      setOpsHistory(data.history || { approved: [], rejected: [] });
+      setOpsStats(data.stats || null);
+      setOpsStorage(data.storageOk === false ? 'error' : data.storage);
+      if (data.storageOk === false) setOpsError(data.storageNote || 'Queue storage unreachable');
+    } catch (err) {
+      setOpsError(err.message);
+    } finally {
+      setOpsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refreshQueue(); }, [refreshQueue]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyTab, setHistoryTab] = useState('approved');
   const [historyView, setHistoryView] = useState('grid');
@@ -91,6 +117,7 @@ export function AppProvider({ children }) {
     setErrorBanner('');
     setIterations({ total: 0, horizontal: 0, vertical: 0 });
     setLastPrompt('');
+    setVerdictToken(null);
     setCardholderName('');
     setLayerStatus({});
     hasGeneratedRef.current = false;
@@ -125,9 +152,11 @@ export function AppProvider({ children }) {
     lastPrompt, setLastPrompt,
     hasGeneratedRef, seedRef,
     resetCustomer,
+    verdictToken, setVerdictToken,
     // ops
     opsQueue, setOpsQueue,
     opsHistory, setOpsHistory,
+    opsLoading, opsError, opsStorage, opsStats, refreshQueue,
     historyOpen, setHistoryOpen,
     historyTab, setHistoryTab,
     historyView, setHistoryView,

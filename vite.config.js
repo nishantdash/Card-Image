@@ -7,18 +7,27 @@ import react from '@vitejs/plugin-react';
 // POSTs /api/generate and receives the SPA's index.html — meaning the whole
 // server-enforced path is untestable locally, which is exactly the path most
 // worth testing. `vercel dev` also works; this keeps plain `npm run dev` honest.
+// Routes handled locally. Files starting with "_" are private modules, matching
+// Vercel's own convention, so they are not routable.
+const API_ROUTES = ['generate', 'submissions'];
+
 function apiDevServer() {
   return {
     name: 'api-dev-server',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use('/api/generate', async (req, res) => {
+      // Mounted before Vite's static/transform middleware, otherwise a request to
+      // /api/submissions is resolved as a module and the raw source is served.
+      server.middlewares.use('/api', async (req, res, next) => {
+        const name = (req.url || '').split('?')[0].replace(/^\/+|\/+$/g, '');
+        if (!API_ROUTES.includes(name)) return next();
+
         let raw = '';
         req.on('data', (chunk) => { raw += chunk; });
         req.on('end', async () => {
           try {
             // Imported through Vite's module runner so edits hot-reload.
-            const mod = await server.ssrLoadModule('/api/generate.js');
+            const mod = await server.ssrLoadModule(`/api/${name}.js`);
             let body = null;
             if (raw) {
               try { body = JSON.parse(raw); }

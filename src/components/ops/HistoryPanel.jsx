@@ -63,12 +63,15 @@ export default function HistoryPanel() {
         ) : (
           items.map((item) => {
             const orientClass = (item.orientation || 'horizontal') === 'vertical' ? 'vertical' : '';
-            const decided = formatDecisionTime(item.decisionAt);
+            // Server records `decidedAt`; older in-session items used `decisionAt`.
+            const decidedAt = item.decidedAt ?? item.decisionAt;
+            const decided = formatDecisionTime(decidedAt);
+            const artwork = item.thumbnail || item.imageUrl;
             return (
-              <div key={`${item.id}-${item.decisionAt}`} className="hist-item">
-                <div className={`ops-thumb ${item.imageUrl ? '' : (item.art || '')} ${orientClass}`}>
-                  {item.imageUrl && (
-                    <div className="ops-thumb-card" style={{ backgroundImage: `url('${item.imageUrl}')` }}></div>
+              <div key={`${item.id}-${decidedAt}`} className="hist-item">
+                <div className={`ops-thumb ${artwork ? '' : (item.art || '')} ${orientClass}`}>
+                  {artwork && (
+                    <div className="ops-thumb-card" style={{ backgroundImage: `url('${artwork}')` }}></div>
                   )}
                 </div>
                 <div className="hist-body">

@@ -19,7 +19,7 @@ the moderation bar is deliberately higher than for general web content.
 ```bash
 npm install
 npm run dev            # http://localhost:5173
-npm test               # 47 tests, no watch mode
+npm test               # 65 tests, no watch mode
 npm run build          # production build to dist/
 ```
 
@@ -88,10 +88,14 @@ shared/                     # Framework-agnostic. No window, no fetch, no proces
     modelPolicy.js          # Model verdict thresholds -> policy outcomes
     index.js                # evaluateSubmission() — the single decision point
   prompt.js                 # Prompt assembly + closed style vocabulary
+  opsSeed.js                # Sample queue rows, seeded once, labelled in the UI
 
 api/                        # Vercel serverless (server-only)
   generate.js               # The ONLY path to an image provider
+  submissions.js            # Ops queue: list / create / decide
   _moderation.js            # Gemini / OpenAI / HuggingFace classifiers
+  _store.js                 # KV persistence (Upstash REST) + memory fallback
+  _verdict.js               # HMAC-signed verdict tokens
 
 src/
   context/AppContext.jsx    # All journey + ops state
@@ -101,7 +105,7 @@ src/
     useGeneration.js        # Generation hook, iteration counting, fallback art
     imageChecks.js          # Real DPI + Laplacian sharpness measurement
     bankTemplate.js         # AU Bank card template, embosser compositing
-    settings.js, utils.js, opsMocks.js
+    settings.js, utils.js, opsApi.js
   components/customer/      # Builder, StepSource/Customize/Review/Result, Preview
   components/ops/           # OpsItem, ProviderSettings, HistoryPanel
   views/                    # CustomerView, OpsView, ArchitectureView
@@ -268,11 +272,11 @@ Documented rather than hidden:
 - **No authentication anywhere.** The Ops Dashboard is a tab toggle in the same
   public SPA. Anyone with the URL can open it and approve/reject submissions. This
   is the largest outstanding gap.
-- **The ops queue is client-side state.** Submissions live in React state and are
-  lost on reload; `opsMocks.js` seeds it. There is no backend for it.
-- **Rate limiting is per-instance.** `api/generate.js` uses an in-memory map;
-  serverless instances are per-region and recycled. A real quota needs Vercel KV,
-  Upstash, or similar.
+- **The ops queue has no per-reviewer attribution.** Decisions are recorded but
+  not attributed to a user, because there is no authentication.
+- **Rate limiting is per-instance.** Both endpoints use an in-memory map;
+  serverless instances are per-region and recycled. A real quota should move to
+  the KV store the queue already uses.
 - **Moderation cache is per-instance** for the same reason.
 - **L6 / L7 are not implemented** and report as unevaluated.
 - **Blocklists live in a source file.** They are locale-specific, go stale, and

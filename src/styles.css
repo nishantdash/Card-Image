@@ -927,6 +927,14 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
   text-transform: uppercase;
   z-index: 2;
 }
+/* Seeded sample rows, visually distinct from real submissions. */
+.submission-badge.demo {
+  background: var(--bg-elev-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  left: auto;
+  right: 10px;
+}
 
 .ops-meta {
   display: flex;

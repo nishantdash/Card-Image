@@ -8,6 +8,7 @@ export default function OpsView() {
   const {
     opsQueue, opsHistory, historyOpen, setHistoryOpen,
     opsTab, setOpsTab,
+    opsLoading, opsError, opsStorage, opsStats, refreshQueue,
   } = useApp();
 
   const isArch = opsTab === 'architecture';
@@ -52,18 +53,50 @@ export default function OpsView() {
                 </span>
               </span>
             </button>
+            {/* Every figure here is derived from real queue data. The previous
+                header showed a hardcoded "87% auto-approved" and "4.2s avg
+                latency", which invites a question it cannot answer. */}
             <div className="ops-stats">
               <div className="stat"><span className="stat-num">{opsQueue.length}</span><span className="stat-lbl">In Queue</span></div>
-              <div className="stat"><span className="stat-num">87%</span><span className="stat-lbl">Auto-approved (24h)</span></div>
-              <div className="stat"><span className="stat-num">4.2s</span><span className="stat-lbl">Avg AI latency</span></div>
-              <div className="stat"><span className="stat-num">0.3%</span><span className="stat-lbl">Fraud blocked</span></div>
+              <div className="stat"><span className="stat-num">{opsHistory.approved.length}</span><span className="stat-lbl">Approved</span></div>
+              <div className="stat"><span className="stat-num">{opsHistory.rejected.length}</span><span className="stat-lbl">Rejected</span></div>
+              <div className="stat">
+                <span className="stat-num">
+                  {opsStats?.approvalRate == null ? '—' : `${opsStats.approvalRate}%`}
+                </span>
+                <span className="stat-lbl">Approval rate</span>
+              </div>
             </div>
           </div>
+
+          {/* The queue is shared server state. If it is falling back to
+              per-instance memory, say so — a queue that quietly forgets
+              submissions is worse than one that admits it. */}
+          {opsStorage === 'memory' && (
+            <div className="settings-warning" style={{ marginBottom: 18 }}>
+              <strong>⚠ Queue is not shared.</strong> No KV store is configured, so
+              submissions live in a single serverless instance and will disappear on
+              redeploy or when a second instance handles the request. Add Vercel&apos;s
+              Upstash/KV integration to make the queue durable and visible to every
+              reviewer.
+            </div>
+          )}
+          {opsError && (
+            <div className="settings-warning" style={{ marginBottom: 18 }}>
+              <strong>⚠ Queue unavailable.</strong> {opsError}{' '}
+              <button className="btn ghost small" onClick={refreshQueue}>Retry</button>
+            </div>
+          )}
 
           <ProviderSettings />
 
           <div className={`ops-grid ${historyOpen ? 'hidden' : ''}`}>
-            {opsQueue.length === 0 ? (
+            {opsLoading ? (
+              <div className="card" style={{ gridColumn: '1/-1', textAlign: 'center', padding: '60px 20px' }}>
+                <div className="spinner" style={{ margin: '0 auto 12px' }}></div>
+                <p className="muted small">Loading the review queue…</p>
+              </div>
+            ) : opsQueue.length === 0 ? (
               <div className="card" style={{ gridColumn: '1/-1', textAlign: 'center', padding: '60px 20px' }}>
                 <h3 style={{ marginBottom: 6 }}>Queue is empty</h3>
                 <p className="muted small">All submissions have been processed. New customer designs will appear here automatically.</p>

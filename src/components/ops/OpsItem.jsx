@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
 import { riskTone, COHORT_APPROVAL } from '../../lib/utils.js';
+import { decideSubmission } from '../../lib/opsApi.js';
 
 const PRESET_REASONS = [
   'Image quality below embosser threshold',
@@ -114,22 +115,42 @@ function RejectModalBody({ item, inputRef, onPresetClick }) {
 }
 
 export default function OpsItem({ item }) {
-  const { setOpsQueue, setOpsHistory, openModal, showToast } = useApp();
+  const { openModal, showToast, refreshQueue } = useApp();
   const [sigOpen, setSigOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const tone = riskTone(item.risk);
   const isUserSub = !!item.isUserSubmission;
   const cohortApproval = COHORT_APPROVAL[item.style] ?? 89;
   const orientClass = (item.orientation || 'horizontal') === 'vertical' ? 'vertical' : '';
-  const thumbCardStyle = item.imageUrl ? { backgroundImage: `url('${item.imageUrl}')` } : undefined;
-  const thumbClass = item.imageUrl ? '' : (item.art || '');
+  // Server-stored submissions carry `thumbnail`; the seeded demo rows use CSS art.
+  const artwork = item.thumbnail || item.imageUrl;
+  const thumbCardStyle = artwork ? { backgroundImage: `url('${artwork}')` } : undefined;
+  const thumbClass = artwork ? '' : (item.art || '');
   const iters = normalizeIterations(item);
 
-  const approve = () => {
-    setOpsHistory((h) => ({ ...h, approved: [{ ...item, decisionAt: Date.now() }, ...h.approved] }));
-    setOpsQueue((q) => q.filter(it => it.id !== item.id));
-    showToast('ok', `✓ ${item.cardholderName || item.id} approved · sent to embosser`);
+  // Decisions are persisted server-side so every reviewer sees the same queue.
+  const decide = async (action, reason) => {
+    setBusy(true);
+    try {
+      await decideSubmission({ id: item.id, action, reason });
+      await refreshQueue();
+      showToast(
+        action === 'approve' ? 'ok' : 'fail',
+        action === 'approve'
+          ? `✓ ${item.cardholderName || item.id} approved · sent to embosser`
+          : `✕ ${item.cardholderName || item.id} rejected`,
+      );
+    } catch (err) {
+      showToast('fail', `Could not ${action}: ${err.message}`);
+      // Another reviewer may have already decided it — resync either way.
+      await refreshQueue();
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const approve = () => decide('approve');
 
   const reject = () => {
     const ref = { current: null };
@@ -156,9 +177,7 @@ export default function OpsItem({ item }) {
               showToast('fail', 'Rejection reason is required');
               return false;
             }
-            setOpsHistory((h) => ({ ...h, rejected: [{ ...item, decisionAt: Date.now(), reason }, ...h.rejected] }));
-            setOpsQueue((q) => q.filter(it => it.id !== item.id));
-            showToast('fail', `✕ ${item.cardholderName || item.id} rejected`);
+            decide('reject', reason);
           },
         },
       ],
@@ -170,6 +189,9 @@ export default function OpsItem({ item }) {
       <div className={`ops-thumb ${thumbClass} ${orientClass}`}>
         {item.imageUrl && <div className="ops-thumb-card" style={thumbCardStyle}></div>}
         {isUserSub && <span className="submission-badge">Just Submitted</span>}
+        {/* A reviewer must be able to tell seeded sample data from a real
+            customer submission. */}
+        {item.isDemo && <span className="submission-badge demo">Sample data</span>}
       </div>
       <div className="ops-body">
         <div className="ops-meta">
@@ -226,8 +248,12 @@ export default function OpsItem({ item }) {
         </div>
 
         <div className="ops-actions">
-          <button className="approve" onClick={approve}>✓ Approve</button>
-          <button className="reject" onClick={reject}>✕ Reject</button>
+          <button className="approve" onClick={approve} disabled={busy}>
+            {busy ? '…' : '✓ Approve'}
+          </button>
+          <button className="reject" onClick={reject} disabled={busy}>
+            {busy ? '…' : '✕ Reject'}
+          </button>
         </div>
       </div>
     </div>

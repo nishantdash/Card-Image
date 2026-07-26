@@ -30,6 +30,7 @@ import {
 import {
   moderationConfig, moderateText, moderateImage, moderateImages,
 } from './_moderation.js';
+import { signVerdict } from './_verdict.js';
 
 const MAX_VARIATIONS = 4;
 const MAX_FREETEXT = 500;
@@ -122,6 +123,21 @@ async function generateGemini({ prompt, key, inputImage, orientation }) {
 }
 
 // ── Response shaping ───────────────────────────────────────────────────────
+
+/** Reviewer-facing flags. Mirrors buildFlagsFromSignals on the client. */
+function buildFlags(verdict) {
+  const flags = [];
+  if (verdict.prompt.riskScore > 25) flags.push(`prompt:${verdict.prompt.riskScore}`);
+  for (const c of verdict.prompt.categories) flags.push(c);
+  if (verdict.prompt.obfuscationDetected) flags.push('obfuscated');
+  if (verdict.name.severity === 'review') flags.push('name:review');
+  for (const c of verdict.components) {
+    if (c.available && c.value > 25) flags.push(`${c.key}:${c.value}`);
+  }
+  if (verdict.unevaluated.length) flags.push(`unevaluated:${verdict.unevaluated.length}`);
+  return flags.length ? [...new Set(flags)] : ['clean'];
+}
+
 function publicVerdict(verdict, cfg, extra = {}) {
   return {
     decision: verdict.decision,
@@ -295,9 +311,48 @@ export default async function handler(req, res) {
     });
   }
 
+  // Signed so /api/submissions can trust the verdict without re-running the
+  // classifier, and so a tampered client cannot submit rejected artwork as
+  // approved. Only minted on a successful, allowed generation.
+  const verdictToken = signVerdict({
+    decision: finalVerdict.decision.code,
+    decisionLabel: finalVerdict.decision.label,
+    decisionObject: finalVerdict.decision,
+    riskScore: finalVerdict.riskScore,
+    safetyScore: finalVerdict.safetyScore,
+    hardBlocked: finalVerdict.hardBlocked,
+    confidence: Math.round(
+      Math.min(100, Math.abs(50 - finalVerdict.riskScore) * 2) * (finalVerdict.coverage / 100),
+    ),
+    flags: buildFlags(finalVerdict),
+    moderation: {
+      provider: cfg.provider,
+      available: finalVerdict.moderationAvailable,
+      blocked: finalModel.blocked,
+      review: finalModel.review,
+    },
+    signals: {
+      promptRisk: finalVerdict.prompt.riskScore,
+      promptFlags: finalVerdict.prompt.categories,
+      nameSeverity: finalVerdict.name.severity,
+      detectors: Object.fromEntries(
+        finalVerdict.components
+          .filter(c => ['nsfw', 'celebrity', 'logo', 'ocrText', 'imageQuality'].includes(c.key))
+          .map(c => [c.key, { available: c.available, value: c.value }]),
+      ),
+      riskScore: finalVerdict.riskScore,
+      safetyScore: finalVerdict.safetyScore,
+      coverage: finalVerdict.coverage,
+      unevaluated: finalVerdict.unevaluated,
+      enforcedBy: 'server',
+      fraudEvaluated: false,
+    },
+  });
+
   return res.status(200).json({
     ...publicVerdict(finalVerdict, cfg, { droppedImages }),
     images,
+    verdictToken,
     requested: variations,
     // The prompt actually sent, post-redaction — useful for the ops audit trail
     // and safe to expose because every blocklist hit has been removed.

@@ -37,7 +37,7 @@ export function useGeneration() {
     source, uploaded, selections, freeText, cardOrientation, cardholderName,
     settings, hasGeneratedRef, seedRef,
     setVariations, setSelectedVariation, setAiLoading, setAiLoadingText,
-    setErrorBanner, recordIteration, setLastPrompt, showToast,
+    setErrorBanner, recordIteration, setLastPrompt, showToast, setVerdictToken,
   } = useApp();
 
   /**
@@ -107,6 +107,9 @@ export function useGeneration() {
 
     setAiLoading(false);
     setLastPrompt(result.verdict?.prompt || '');
+    // Only a successful, allowed generation yields a token; a refusal must not
+    // leave a stale one behind that could be replayed on submit.
+    setVerdictToken(result.refused ? null : (result.verdict?.verdictToken ?? null));
 
     // A refusal must not produce artwork. Showing placeholder art here would
     // render a compliance block as a successful design.
@@ -142,6 +145,7 @@ export function useGeneration() {
     source, uploaded, selections, freeText, cardOrientation, cardholderName, settings,
     hasGeneratedRef, seedRef, setAiLoading, setAiLoadingText, setErrorBanner,
     setLastPrompt, recordIteration, setVariations, setSelectedVariation, showToast,
+    setVerdictToken,
   ]);
 
   const ensureOrientation = useCallback(async (variations, index, orient, setVariationsFn) => {

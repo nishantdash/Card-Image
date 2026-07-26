@@ -1,5 +1,10 @@
 // Demo queue seed data.
 //
+// Seeded into the shared store once, on first read of an empty queue, so the ops
+// dashboard is not bare during a walkthrough. Each row is marked `isDemo: true`
+// and labelled in the UI — a reviewer must be able to tell sample data from a
+// real customer submission.
+//
 // These represent historical submissions from a deployment where the image
 // detectors were wired up, so their detector entries are marked available. Real
 // submissions made in this build carry `available: false` for those same
@@ -18,8 +23,9 @@ const detectors = ({ nsfw, celebrity, logo, ocrText, imageQuality = 8 }) => ({
   imageQuality: { available: true, value: imageQuality },
 });
 
-export const INITIAL_OPS_QUEUE = [
+export const OPS_SEED = [
   {
+    isDemo: true,
     id: 'CUST-8492', cardholderName: 'AMIT SHARMA', time: '2m ago',
     risk: 34, safety: 66, confidence: 32,
     style: 'cyberpunk', mood: 'futuristic',
@@ -34,6 +40,7 @@ export const INITIAL_OPS_QUEUE = [
     art: 'art-cyberpunk mood-futuristic',
   },
   {
+    isDemo: true,
     id: 'CUST-8488', cardholderName: 'PRIYA NAIR', time: '4m ago',
     risk: 22, safety: 78, confidence: 56,
     style: 'watercolor', mood: 'vibrant',
@@ -48,6 +55,7 @@ export const INITIAL_OPS_QUEUE = [
     art: 'art-watercolor mood-vibrant',
   },
   {
+    isDemo: true,
     id: 'CUST-8485', cardholderName: 'RAHUL VERMA', time: '6m ago',
     risk: 51, safety: 49, confidence: 2,
     style: '3d-render', mood: 'dark',
@@ -62,6 +70,7 @@ export const INITIAL_OPS_QUEUE = [
     art: 'art-3d-render mood-dark', warn: true,
   },
   {
+    isDemo: true,
     id: 'CUST-8479', cardholderName: 'NEHA GUPTA', time: '8m ago',
     risk: 28, safety: 72, confidence: 44,
     style: 'vintage-poster', mood: 'calm',
@@ -76,6 +85,7 @@ export const INITIAL_OPS_QUEUE = [
     art: 'art-vintage-poster mood-calm',
   },
   {
+    isDemo: true,
     id: 'CUST-8466', cardholderName: 'ARJUN MEHTA', time: '14m ago',
     risk: 67, safety: 33, confidence: 34,
     style: 'oil-painting', mood: 'dark',

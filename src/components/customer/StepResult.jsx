@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
 import { useGeneration } from '../../lib/useGeneration.js';
 import { validateCardholderName, firstNameError } from '../../../shared/guardrails/index.js';
-import { generateCustomerId, computeConfidence, buildFlagsFromSignals } from '../../lib/utils.js';
+import { createSubmission, makeThumbnail } from '../../lib/opsApi.js';
 
 const NOT_EVALUATED = 'Not evaluated';
 
@@ -10,9 +10,10 @@ export default function StepResult() {
   const {
     signals, decision, variations, selectedVariation, setSelectedVariation,
     cardOrientation, cardholderName, selections, iterations, setVariations,
-    openModal, showToast, resetCustomer, setOpsQueue,
+    openModal, showToast, resetCustomer, verdictToken, refreshQueue,
   } = useApp();
   const { generate, ensureOrientation } = useGeneration();
+  const [submitting, setSubmitting] = useState(false);
 
   const nameCheck = useMemo(() => validateCardholderName(cardholderName), [cardholderName]);
 
@@ -26,32 +27,31 @@ export default function StepResult() {
     await ensureOrientation(variations, i, cardOrientation, setVariations);
   };
 
-  const submitToOps = (selected, name) => {
-    const id = generateCustomerId();
-    const { style, mood, color, background } = selections;
-    const risk = signals?.riskScore ?? 0;
+  // Submits to the shared server queue. Risk score, decision and signals are NOT
+  // sent — the server reads them from the signed verdict token, so a tampered
+  // client cannot post rejected artwork as approved.
+  const submitToOps = async (selected, name) => {
     const orient = cardOrientation || 'horizontal';
     const imageUrl = selected.cache?.[orient] || selected.src;
-    const artClass = [style && `art-${style}`, mood && `mood-${mood}`].filter(Boolean).join(' ');
-    setOpsQueue(cur => [{
-      id,
-      cardholderName: name,
-      time: 'just now',
-      risk,
-      safety: signals?.safetyScore ?? (100 - risk),
-      confidence: computeConfidence(risk, signals?.coverage),
-      style, mood, color, background,
-      flags: buildFlagsFromSignals(signals),
-      signals: { ...signals },
-      imageUrl,
-      art: artClass,
-      orientation: orient,
-      iterations: { ...iterations },
-      decision,
-      isUserSubmission: true,
-    }, ...cur]);
-    showToast('ok', `Submitted for review · Tracking ID: ${id}`);
-    resetCustomer();
+    setSubmitting(true);
+    try {
+      const thumbnail = await makeThumbnail(imageUrl);
+      const { item } = await createSubmission({
+        verdictToken,
+        cardholderName: name,
+        selections,
+        orientation: orient,
+        iterations,
+        thumbnail,
+      });
+      await refreshQueue();
+      showToast('ok', `Submitted for review · Tracking ID: ${item.id}`);
+      resetCustomer();
+    } catch (err) {
+      showToast('fail', `Could not submit: ${err.message}`);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const onSubmit = () => {
@@ -61,6 +61,14 @@ export default function StepResult() {
     }
     const selected = variations?.[selectedVariation];
     if (!selected || !selected.src) { showToast('fail', 'No variation selected'); return; }
+
+    // Without a signed verdict the server will refuse, so say so here rather than
+    // letting the customer fill in a modal for nothing. Happens when the artwork
+    // is offline fallback art (no successful server generation).
+    if (!verdictToken) {
+      showToast('fail', 'This design was not verified by the server — please try generating again.');
+      return;
+    }
 
     // Re-validate at the point of submission: the name field stays editable
     // after the review ran, so the checked value and the submitted value are not
@@ -261,8 +269,14 @@ export default function StepResult() {
         </details>
 
         <div className="submit-block">
-          <button className="btn primary full" onClick={onSubmit} disabled={blocked || !hasArtwork}>
-            {blocked ? "✕ Can't submit this design" : 'Submit my design →'}
+          <button
+            className="btn primary full"
+            onClick={onSubmit}
+            disabled={blocked || !hasArtwork || submitting}
+          >
+            {blocked ? "✕ Can't submit this design"
+              : submitting ? 'Submitting…'
+              : 'Submit my design →'}
           </button>
           <p className="muted small center" style={{ color: blocked ? 'var(--red)' : '' }}>
             {blocked
