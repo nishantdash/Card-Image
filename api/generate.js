@@ -32,6 +32,7 @@ import {
 } from './_moderation.js';
 import { signVerdict } from './_verdict.js';
 import { assessEmbosserFit } from '../shared/imageMeta.js';
+import { providerAspects } from '../shared/cardGeometry.js';
 
 const MAX_VARIATIONS = 4;
 const MAX_FREETEXT = 500;
@@ -79,21 +80,31 @@ async function generateGemini({ prompt, key, inputImage, orientation }) {
   }
   parts.push({ text: prompt });
 
-  const bodyFor = (imageSize) => ({
+  const bodyFor = (aspectRatio, imageSize) => ({
     contents: [{ parts }],
     generationConfig: {
       responseModalities: ['TEXT', 'IMAGE'],
       imageConfig: {
-        aspectRatio: orientation === 'vertical' ? '9:16' : '16:9',
+        aspectRatio,
         ...(imageSize ? { imageSize } : {}),
       },
     },
   });
 
+  // Closest supported ratio to the card's 1.586:1 first. Previously this asked
+  // for 16:9 (1.778), so every render was noticeably wider than the card and the
+  // sides were cropped away — by a varying amount, because different model
+  // variants return different pixel sizes.
+  const aspects = providerAspects(orientation);
+
   let lastErr;
-  for (const model of GEMINI_IMAGE_MODELS) {
-   for (const imageSize of IMAGE_SIZE_ATTEMPTS) {
-    const body = bodyFor(imageSize);
+  // Labelled so an unsupported field can skip the right amount: a rejected
+  // imageSize retries the same aspect, a rejected aspect moves to the next one,
+  // and anything else moves on to the next model.
+  models: for (const model of GEMINI_IMAGE_MODELS) {
+   aspects: for (const aspectRatio of aspects) {
+    for (const imageSize of IMAGE_SIZE_ATTEMPTS) {
+    const body = bodyFor(aspectRatio, imageSize);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PROVIDER_TIMEOUT_MS);
     try {
@@ -110,10 +121,16 @@ async function generateGemini({ prompt, key, inputImage, orientation }) {
       );
       if (!res.ok) {
         const errText = await res.text();
-        lastErr = new Error(`${model}${imageSize ? `/${imageSize}` : ''} -> ${res.status}: ${errText.slice(0, 200)}`);
-        // A 400 mentioning the size field means retry this model without it.
-        if (res.status === 400 && imageSize && /imageSize|image_size|imageConfig/i.test(errText)) continue;
-        if (res.status === 404 || res.status === 400) break;
+        lastErr = new Error(
+          `${model} ${aspectRatio}${imageSize ? `/${imageSize}` : ''} -> ${res.status}: ${errText.slice(0, 200)}`,
+        );
+        if (res.status === 400) {
+          // Retry the same aspect without the size field.
+          if (imageSize && /imageSize|image_size/i.test(errText)) continue;
+          // An unsupported ratio: try the next one rather than giving up on the model.
+          if (/aspect|ratio/i.test(errText)) continue aspects;
+        }
+        if (res.status === 404 || res.status === 400) continue models;
         throw lastErr;
       }
       const data = await res.json();
@@ -129,14 +146,16 @@ async function generateGemini({ prompt, key, inputImage, orientation }) {
       return {
         src: `data:${inline.mimeType || inline.mime_type};base64,${inline.data}`,
         model,
+        aspectRatio,
         imageSize: imageSize || 'default',
       };
     } catch (err) {
       if (err.name === 'AbortError') throw err;
       lastErr = err;
-      break; // move to the next model rather than retrying the same one
+      continue models; // a transport failure is not fixed by another ratio
     } finally {
       clearTimeout(timer);
+    }
     }
    }
   }

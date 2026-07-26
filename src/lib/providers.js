@@ -2,6 +2,15 @@ import { evaluateSubmission } from '../../shared/guardrails/index.js';
 import {
   buildStyleText, buildFullPrompt, buildEditPrompt, sanitizeOrientation,
 } from '../../shared/prompt.js';
+import { cardAspect } from '../../shared/cardGeometry.js';
+
+// Preview-sized canvas at the true card ratio. Hardcoded 864x540 was 1.600,
+// close to but not the card's 1.586, which left a sliver cropped on every edge.
+function previewBox(orientation) {
+  const long = 864;
+  const short = Math.round(long / cardAspect('horizontal'));
+  return orientation === 'vertical' ? [short, long] : [long, short];
+}
 
 // Generation transport.
 //
@@ -77,7 +86,7 @@ const FALLBACK_PALETTES = {
 
 export function buildFallbackArt(selections = {}, orientation = 'horizontal', seed = 1) {
   const pal = FALLBACK_PALETTES[selections.color] || FALLBACK_PALETTES._default;
-  const [w, h] = orientation === 'vertical' ? [540, 864] : [864, 540];
+  const [w, h] = previewBox(orientation);
   const angle = seed % 360;
   const hx = (seed * 37) % 100;
   const hy = (seed * 53) % 100;
@@ -147,7 +156,7 @@ async function generatePollinations(prompt, orientation, seedRef, signal) {
   const safe = prompt.replace(/[^\w ,.\-]/g, '').slice(0, 380);
   const seed = seedRef.current || Math.floor(Math.random() * 100000);
   seedRef.current = seed;
-  const [w, h] = orientation === 'vertical' ? [540, 864] : [864, 540];
+  const [w, h] = previewBox(orientation);
   const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(safe)}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
   await new Promise((res, rej) => {
     const img = new Image();

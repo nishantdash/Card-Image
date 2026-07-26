@@ -257,6 +257,68 @@ main { padding: 32px 36px 80px; max-width: 1440px; margin: 0 auto; }
 .upload-meta .meta-ok { color: var(--green); }
 .upload-meta .meta-bad { color: var(--red); }
 
+/* ── Image cropper ───────────────────────────────────────────────────────── */
+.cropper h3 { font-size: 16px; margin-bottom: 4px; }
+.cropper-frame {
+  position: relative;
+  width: 100%;
+  margin: 16px 0 12px;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #000;
+  border: 1px solid var(--line);
+  cursor: grab;
+  /* Stop the browser panning the page while the photo is being dragged. */
+  touch-action: none;
+  user-select: none;
+}
+.cropper-frame:active { cursor: grabbing; }
+.cropper-img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  pointer-events: none;
+}
+/* Reserved-zone guides: the chip sits upper-left, number and name along the
+   lower band. Advisory only — deliberately faint. */
+.cropper-guides { position: absolute; inset: 0; pointer-events: none; }
+.guide-chip {
+  position: absolute;
+  left: 6.5%; top: 27.8%;
+  width: 10.5%; height: 13%;
+  border: 1px dashed rgba(255,255,255,.45);
+  border-radius: 4px;
+}
+.guide-strip {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 33%;
+  background: linear-gradient(to top, rgba(0,0,0,.35), transparent);
+  border-top: 1px dashed rgba(255,255,255,.28);
+}
+.cropper-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cropper-zoom-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  font-weight: 600;
+}
+.cropper-controls input[type="range"] { flex: 1; accent-color: var(--accent); }
+.cropper-meta { margin-top: 8px; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+.cropper-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
+}
+.upload-recrop { margin-left: 10px; }
+
 /* Pickers */
 .picker-block { margin-top: 22px; }
 .picker-block label {

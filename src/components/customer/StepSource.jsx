@@ -1,10 +1,17 @@
 import { useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext.jsx';
+import ImageCropper from './ImageCropper.jsx';
 
 export default function StepSource() {
-  const { source, setSource, uploaded, setUploaded, uploadMeta, setUploadMeta, setStep } = useApp();
+  const {
+    source, setSource, uploaded, setUploaded, uploadMeta, setUploadMeta, setStep,
+    cardOrientation,
+  } = useApp();
   const fileInputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
+  // Raw file awaiting a crop. Nothing reaches `uploaded` until the customer has
+  // framed it, so the rest of the journey only ever sees a card-shaped photo.
+  const [pendingCrop, setPendingCrop] = useState(null);
 
   const pick = (src) => {
     setSource(src);
@@ -29,15 +36,53 @@ export default function StepSource() {
       setUploadMeta({ tone: 'red', title: "That file couldn't be read.", detail: 'Please try another photo.' });
     };
     reader.onload = (e) => {
-      setUploaded({ name: file.name, size: file.size, dataURL: e.target.result });
-      setUploadMeta({
-        tone: 'green',
-        title: '✓ Looks good.',
-        detail: `${file.name} · ${(file.size / 1024).toFixed(0)} KB`,
-      });
+      // Hand off to the cropper rather than accepting the photo as-is.
+      setPendingCrop({ name: file.name, size: file.size, dataURL: e.target.result });
+      setUploadMeta(null);
     };
     reader.readAsDataURL(file);
   };
+
+  const onCropApplied = (croppedDataURL) => {
+    setUploaded({
+      name: pendingCrop.name,
+      size: pendingCrop.size,
+      dataURL: croppedDataURL,
+      // Kept so the customer can re-crop without re-picking the file.
+      originalDataURL: pendingCrop.dataURL,
+      cropped: true,
+    });
+    setUploadMeta({
+      tone: 'green',
+      title: '✓ Photo ready.',
+      detail: `${pendingCrop.name} · cropped to card shape`,
+    });
+    setPendingCrop(null);
+  };
+
+  const recrop = () => {
+    if (!uploaded) return;
+    setPendingCrop({
+      name: uploaded.name,
+      size: uploaded.size,
+      dataURL: uploaded.originalDataURL || uploaded.dataURL,
+    });
+  };
+
+  // The cropper takes over the step: one decision at a time on a phone screen.
+  if (pendingCrop) {
+    return (
+      <ImageCropper
+        src={pendingCrop.dataURL}
+        orientation={cardOrientation}
+        onApply={onCropApplied}
+        onCancel={() => {
+          setPendingCrop(null);
+          fileInputRef.current?.click();
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -88,6 +133,11 @@ export default function StepSource() {
               {uploadMeta.title}
             </strong>{' '}
             {uploadMeta.detail}
+            {uploaded?.cropped && (
+              <button className="btn ghost small upload-recrop" onClick={recrop}>
+                ⤢ Adjust crop
+              </button>
+            )}
           </div>
         )}
       </div>

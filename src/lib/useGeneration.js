@@ -3,6 +3,7 @@ import { useApp } from '../context/AppContext.jsx';
 import {
   PROVIDERS, IS_SERVER_ENFORCED, requestGeneration, resizeImageDataURL, buildFallbackArt,
 } from './providers.js';
+import { normalizeAllToCard, normalizeToCard } from './cardImage.js';
 import { fetchBankCardTemplate, composeEmbosserReadyArtwork } from './bankTemplate.js';
 
 const VARIATION_COUNT = 3;
@@ -119,7 +120,11 @@ export function useGeneration() {
       return result;
     }
 
-    const built = result.images.map(src => toVariation(src, orientation));
+    // Trim every render to exactly the card aspect ratio. The provider's returned
+    // size varies by model variant, and the card face is a fixed 1.586:1 — without
+    // this the same design appeared to change size between runs.
+    const normalized = await normalizeAllToCard(result.images, orientation);
+    const built = normalized.map(src => toVariation(src, orientation));
 
     // Offline fallback applies only to provider failures on an ALLOWED
     // submission, so a live demo survives an unreachable provider.
@@ -178,8 +183,11 @@ export function useGeneration() {
         showToast('fail', 'This design can no longer be generated — it was blocked by moderation.');
         return;
       }
-      const src = result.images[0];
-      if (!src) throw new Error('No image returned');
+      const raw = result.images[0];
+      if (!raw) throw new Error('No image returned');
+      // Same normalization as the initial run, so switching orientation cannot
+      // reintroduce an off-ratio image.
+      const src = await normalizeToCard(raw, orient);
       setVariationsFn(cur => cur.map((x, i) => (i === index
         ? { ...x, src, cache: { ...(x.cache || {}), [orient]: src } }
         : x)));

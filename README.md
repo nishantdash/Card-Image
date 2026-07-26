@@ -19,7 +19,7 @@ the moderation bar is deliberately higher than for general web content.
 ```bash
 npm install
 npm run dev            # http://localhost:5173
-npm test               # 84 tests, no watch mode
+npm test               # 95 tests, no watch mode
 npm run build          # production build to dist/
 ```
 
@@ -88,6 +88,8 @@ shared/                     # Framework-agnostic. No window, no fetch, no proces
     modelPolicy.js          # Model verdict thresholds -> policy outcomes
     index.js                # evaluateSubmission() — the single decision point
   prompt.js                 # Prompt assembly + closed style vocabulary
+  cardGeometry.js           # ISO/IEC 7810 ID-1 ratio, crop math, provider ratios
+  imageMeta.js              # Header-only dimension reader + embosser fit
   opsSeed.js                # Sample queue rows, seeded once, labelled in the UI
 
 api/                        # Vercel serverless (server-only)
@@ -104,9 +106,11 @@ src/
     providers.js            # Transport: server path + local direct path
     useGeneration.js        # Generation hook, iteration counting, fallback art
     imageChecks.js          # Real DPI + Laplacian sharpness measurement
+    cardImage.js            # Canvas crop/normalize to the card ratio
     bankTemplate.js         # AU Bank card template, embosser compositing
     settings.js, utils.js, opsApi.js
-  components/customer/      # Builder, StepSource/Customize/Review/Result, Preview
+  components/customer/      # Builder, StepSource/Customize/Review/Result, Preview,
+                            #   ImageCropper
   components/ops/           # OpsItem, ProviderSettings, HistoryPanel
   views/                    # CustomerView, OpsView, ArchitectureView
 
@@ -172,6 +176,34 @@ If moderation times out, submissions route to **human review** — never
 auto-approved (that would ship unmoderated artwork), never rejected (that would
 tell a customer they violated policy when nothing actually checked). Google's own
 safety filter refusing to classify is treated as a *positive* signal, not an outage.
+
+---
+
+## Card geometry
+
+Everything is derived from `shared/cardGeometry.js` — ISO/IEC 7810 ID-1, the
+global and Indian standard:
+
+| Layout | Millimetres | Inches | Ratio | Simplified |
+|---|---|---|---|---|
+| Horizontal | 85.6 × 53.98 | 3.375" × 2.125" | ~1.586:1 | 8:5 |
+| Vertical | 53.98 × 85.6 | 2.125" × 3.375" | ~1:1.586 | 5:8 |
+
+Generation asks for the closest supported provider ratio (**8:5** / **5:8**,
+essentially exact) and falls through to 3:2 / 2:3 then 16:9 if a model rejects it.
+Whatever comes back is then centre-cropped to exactly `CARD_ASPECT`, so the card
+face renders identically every run.
+
+This fixes a real defect: the UI was built on 1.586:1 but generation requested
+16:9 = 1.778, throwing away ~11% of the width — and because different model
+variants return different pixel sizes, the amount cropped varied, so the same
+design appeared to change size between runs.
+
+**Uploaded photos** go through `ImageCropper` first: a frame locked to the card
+ratio with drag-to-pan, a zoom slider, and faint guides for the chip and the
+number/name band. What the customer positions is exactly what lands on the card.
+It warns when zoom has been pushed far enough to cost print sharpness, and never
+upscales — cropping only ever reads real source pixels.
 
 ---
 
